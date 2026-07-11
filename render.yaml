@@ -1,0 +1,18 @@
+# Fidelia — despliegue en 1 clic en Render
+# En render.com: New → Blueprint → conecta este repositorio → Apply.
+# Crea el servicio con Docker, HTTPS, health check y el DISCO PERSISTENTE
+# en /data ya montado (tus datos nunca se pierden en redeploys).
+services:
+  - type: web
+    name: fidelia
+    runtime: docker
+    plan: starter          # 7 $/mes aprox.: siempre encendido + disco persistente
+    healthCheckPath: /healthz
+    autoDeploy: true
+    disk:
+      name: fidelia-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: FIDELIA_DB
+        value: /data/fidelia.db

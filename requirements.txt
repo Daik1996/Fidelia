@@ -1,0 +1,4 @@
+# Fidelia no necesita dependencias externas.
+# Funciona solo con la biblioteca estándar de Python (3.9 o superior, incluido 3.14).
+# Para ejecutar:   python fidelia.py
+# PyInstaller solo hace falta si quieres generar el .exe (ver build_exe.bat).

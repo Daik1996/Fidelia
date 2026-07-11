@@ -286,6 +286,10 @@ def init_db():
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id);
+            CREATE TABLE IF NOT EXISTS processed_events (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL
+            );
         """)
         ccols = [r["name"] for r in db.execute("PRAGMA table_info(customers)").fetchall()]
         if "nickname" not in ccols:
@@ -594,6 +598,17 @@ def _tenant_by_subscription(sub_id):
 
 
 def process_stripe_event(evt):
+    # Idempotencia: Stripe reintenta webhooks; cada evento se procesa UNA sola vez.
+    evt_id = evt.get("id")
+    if evt_id:
+        with get_db() as db:
+            if db.execute("SELECT 1 FROM processed_events WHERE id = ?", (evt_id,)).fetchone():
+                return {"received": True, "duplicate": True}
+            db.execute("INSERT INTO processed_events (id, created_at) VALUES (?,?)",
+                       (evt_id, now_iso()))
+            # retener solo los últimos 5000 eventos
+            db.execute("DELETE FROM processed_events WHERE id NOT IN "
+                       "(SELECT id FROM processed_events ORDER BY created_at DESC LIMIT 5000)")
     etype = evt.get("type", "")
     obj = (evt.get("data") or {}).get("object") or {}
     if etype == "checkout.session.completed":
@@ -752,6 +767,14 @@ def validate_nickname(db, tenant_id, nickname, exclude_customer_id=None):
     if db.execute(q, args).fetchone():
         raise HttpError(409, "Ese apodo ya está cogido en este restaurante. Prueba otro.")
     return nickname
+
+
+def norm_phone(v):
+    """Normaliza teléfonos: quita espacios, guiones, puntos y paréntesis."""
+    if not v:
+        return None
+    v = re.sub(r"[\s\-\.\(\)]", "", str(v).strip())
+    return v[:20] or None
 
 
 def gen_customer_code(db, tenant_id):
@@ -1069,7 +1092,7 @@ def p_tenant_customers(ctx):
 def p_tenant_adjust(ctx):
     t = _p_tenant(ctx)
     cid = as_int(ctx.params["cid"])
-    delta = as_int(ctx.body.get("delta"))
+    delta = max(-100000, min(100000, as_int(ctx.body.get("delta"))))
     reason = ctx.body.get("reason") or "Ajuste desde plataforma"
     with get_db() as db:
         row = _tenant_customer(db, t["id"], cid)
@@ -1318,6 +1341,61 @@ def t_get_config(ctx):
     return ctx.tenant["config"]
 
 
+HEX_RE = re.compile(r"^#[0-9a-fA-F]{3,8}$")
+SAFE_FONTS = {"Inter", "Poppins", "Montserrat", "Nunito", "Playfair Display"}
+
+
+def _clean_color(v, fallback):
+    v = str(v or "").strip()
+    return v if HEX_RE.match(v) else fallback
+
+
+def _clean_text(v, maxlen=200):
+    return str(v if v is not None else "")[:maxlen]
+
+
+def sanitize_config(cfg):
+    """Deja la configuración siempre segura y coherente, venga de donde venga."""
+    b, t, e = cfg["business"], cfg["theme"], cfg["earning"]
+    b["name"] = _clean_text(b.get("name"), 80) or "Mi Restaurante"
+    b["tagline"] = _clean_text(b.get("tagline"), 140)
+    b["currency_symbol"] = _clean_text(b.get("currency_symbol"), 5) or "€"
+    logo = str(b.get("logo_data") or "")
+    b["logo_data"] = logo if (logo.startswith("data:image/") and len(logo) < 900_000) else ""
+    t["primary"] = _clean_color(t.get("primary"), "#6d3b5e")
+    t["accent"] = _clean_color(t.get("accent"), "#e0a021")
+    t["mode"] = t.get("mode") if t.get("mode") in ("light", "dark") else "light"
+    t["font"] = t.get("font") if t.get("font") in SAFE_FONTS else "Inter"
+    e["xp_per_currency"] = min(1000.0, max(0.0, as_float(e.get("xp_per_currency"), 1.0)))
+    e["xp_per_visit"] = min(10000, max(0, as_int(e.get("xp_per_visit"), 0)))
+    e["signup_bonus"] = min(100000, max(0, as_int(e.get("signup_bonus"), 0)))
+    e["birthday_bonus"] = min(100000, max(0, as_int(e.get("birthday_bonus"), 0)))
+    e["round_mode"] = e.get("round_mode") if e.get("round_mode") in ("floor", "round") else "floor"
+    for k in cfg["texts"]:
+        cfg["texts"][k] = _clean_text(cfg["texts"].get(k), 300)
+    for i, lv in enumerate(cfg["levels"], start=1):
+        lv["id"] = i
+        lv["name"] = _clean_text(lv.get("name"), 40) or f"Nivel {i}"
+        lv["min_xp"] = min(10_000_000, max(0, as_int(lv.get("min_xp", 0))))
+        lv["color"] = _clean_color(lv.get("color"), "#888888")
+        lv["perk"] = _clean_text(lv.get("perk"), 140)
+    clean_rewards = []
+    for rw in cfg["rewards"]:
+        rid = as_int(rw.get("id"), 0) or (max([as_int(x.get("id"), 0) for x in clean_rewards] + [0]) + 1)
+        ml = as_int(rw.get("min_level"), 0)
+        clean_rewards.append({
+            "id": rid, "type": "xp",
+            "name": _clean_text(rw.get("name"), 80) or "Recompensa",
+            "desc": _clean_text(rw.get("desc"), 200),
+            "cost_xp": min(10_000_000, max(0, as_int(rw.get("cost_xp", 0)))),
+            "min_level": ml if ml > 0 else None,
+            "stock": max(-1, as_int(rw.get("stock", -1), -1)),
+            "active": bool(rw.get("active", True)),
+        })
+    cfg["rewards"] = clean_rewards
+    return cfg
+
+
 def t_put_config(ctx):
     payload = ctx.body
     cfg = ctx.tenant["config"]
@@ -1327,11 +1405,9 @@ def t_put_config(ctx):
     for section in ["levels", "rewards"]:
         if isinstance(payload.get(section), list):
             cfg[section] = payload[section]
-    for i, lv in enumerate(cfg["levels"], start=1):
-        lv["id"] = i
-        lv["min_xp"] = as_int(lv.get("min_xp", 0))
     if "setup_done" in payload:
         cfg["setup_done"] = bool(payload["setup_done"])
+    sanitize_config(cfg)
     save_tenant_config(ctx.tenant["id"], cfg)
     return cfg
 
@@ -1353,6 +1429,7 @@ def t_apply_template(ctx):
         cfg["levels"] = json.loads(json.dumps(tpl["levels"]))
     if what in ("rewards", "both"):
         cfg["rewards"] = json.loads(json.dumps(tpl["rewards"]))
+    sanitize_config(cfg)
     save_tenant_config(ctx.tenant["id"], cfg)
     return cfg
 
@@ -1375,6 +1452,7 @@ def t_setup(ctx):
         cfg["levels"] = json.loads(json.dumps(tpl["levels"]))
         cfg["rewards"] = json.loads(json.dumps(tpl["rewards"]))
     cfg["setup_done"] = True
+    sanitize_config(cfg)
     save_tenant_config(ctx.tenant["id"], cfg)
     new_pw = b.get("new_password")
     if new_pw:
@@ -1501,7 +1579,8 @@ def t_public_lookup(ctx):
     q = str(need(ctx.body, "query", "Introduce un teléfono o código")).strip()
     with get_db() as db:
         row = db.execute("SELECT * FROM customers WHERE tenant_id = ? AND active = 1 "
-                         "AND (phone = ? OR code = ?)", (ctx.tenant["id"], q, q.upper())).fetchone()
+                         "AND (phone = ? OR code = ?)",
+                         (ctx.tenant["id"], norm_phone(q) or q, q.upper())).fetchone()
     if not row:
         raise HttpError(404, "No encontramos tu ficha. Pregunta en el local.")
     data = customer_public(row, cfg)
@@ -1533,7 +1612,8 @@ def t_public_nickname(ctx):
     nickname = str(need(ctx.body, "nickname", "Escribe el apodo que quieres"))
     with get_db() as db:
         row = db.execute("SELECT * FROM customers WHERE tenant_id = ? AND active = 1 "
-                         "AND (phone = ? OR code = ?)", (ctx.tenant["id"], q, q.upper())).fetchone()
+                         "AND (phone = ? OR code = ?)",
+                         (ctx.tenant["id"], norm_phone(q) or q, q.upper())).fetchone()
         if not row:
             raise HttpError(404, "No encontramos tu ficha. Pregunta en el local.")
         clean = validate_nickname(db, ctx.tenant["id"], nickname, exclude_customer_id=row["id"])
@@ -1557,7 +1637,7 @@ def t_find_customer(ctx):
     with get_db() as db:
         row = db.execute("SELECT * FROM customers WHERE tenant_id = ? AND active = 1 "
                          "AND (phone = ? OR code = ?)",
-                         (ctx.tenant["id"], q, q.upper())).fetchone()
+                         (ctx.tenant["id"], norm_phone(q) or q, q.upper())).fetchone()
     if not row:
         raise HttpError(404, "No hay ningún cliente con ese teléfono o código")
     return customer_public(row, cfg)
@@ -1618,8 +1698,8 @@ def t_create_customer(ctx):
     cfg = ctx.tenant["config"]
     tid = ctx.tenant["id"]
     b = ctx.body
-    name = str(need(b, "name", "El nombre es obligatorio")).strip()
-    phone = (b.get("phone") or "").strip() or None
+    name = _clean_text(str(need(b, "name", "El nombre es obligatorio")).strip(), 80)
+    phone = norm_phone(b.get("phone"))
     signup = as_int(cfg["earning"].get("signup_bonus", 0))
     with get_db() as db:
         if phone and db.execute("SELECT 1 FROM customers WHERE tenant_id=? AND phone=?", (tid, phone)).fetchone():
@@ -1660,8 +1740,12 @@ def t_update_customer(ctx):
     with get_db() as db:
         _tenant_customer(db, ctx.tenant["id"], cid)
         nickname = validate_nickname(db, ctx.tenant["id"], b.get("nickname"), exclude_customer_id=cid)
+        new_phone = norm_phone(b.get("phone"))
+        if new_phone and db.execute("SELECT 1 FROM customers WHERE tenant_id=? AND phone=? AND id!=?",
+                                    (ctx.tenant["id"], new_phone, cid)).fetchone():
+            raise HttpError(409, "Ya existe otro cliente con ese teléfono")
         db.execute("UPDATE customers SET name=?, phone=?, email=?, birthday=?, notes=?, nickname=? WHERE id=?",
-                   (name, (b.get("phone") or "").strip() or None, (b.get("email") or "").strip() or None,
+                   (name, new_phone, (b.get("email") or "").strip() or None,
                     b.get("birthday") or None, b.get("notes") or None, nickname, cid))
         row = db.execute("SELECT * FROM customers WHERE id = ?", (cid,)).fetchone()
     return customer_public(row, cfg)
@@ -1701,7 +1785,7 @@ def t_earn(ctx):
     cfg = ctx.tenant["config"]
     e = cfg["earning"]
     cid = as_int(ctx.params["cid"])
-    amount = max(0.0, as_float(ctx.body.get("amount")))
+    amount = min(100000.0, max(0.0, as_float(ctx.body.get("amount"))))
     count_visit = ctx.body.get("count_visit", True)
     xp = amount * as_float(e.get("xp_per_currency", 0))
     if count_visit:
@@ -1728,7 +1812,7 @@ def t_earn(ctx):
 def t_adjust(ctx):
     cfg = ctx.tenant["config"]
     cid = as_int(ctx.params["cid"])
-    delta = as_int(ctx.body.get("delta"))
+    delta = max(-100000, min(100000, as_int(ctx.body.get("delta"))))
     with get_db() as db:
         row = _tenant_customer(db, ctx.tenant["id"], cid)
         if not row["active"]:
@@ -1763,7 +1847,11 @@ def t_redeem(ctx):
         stock = as_int(reward.get("stock", -1), -1)
         if stock == 0:
             raise HttpError(400, "Recompensa agotada")
-        db.execute("UPDATE customers SET xp = xp - ? WHERE id = ?", (cost, cid))
+        # descuento ATÓMICO: si otro canje simultáneo gastó los puntos antes, este falla
+        cur = db.execute("UPDATE customers SET xp = xp - ? WHERE id = ? AND xp >= ?",
+                         (cost, cid, cost))
+        if cur.rowcount == 0:
+            raise HttpError(409, "Los puntos acaban de gastarse en otro canje. Recarga la ficha.")
         db.execute("INSERT INTO transactions (customer_id, kind, amount, xp_delta, note, created_at) VALUES (?,?,?,?,?,?)",
                    (cid, "redeem", 0, -cost, f"Canje: {reward['name']}", now_iso()))
         db.execute("INSERT INTO redemptions (customer_id, reward_id, reward_name, cost_xp, created_at) VALUES (?,?,?,?,?)",
@@ -1811,14 +1899,15 @@ def build_customers_csv(tenant):
     buf = io.StringIO()
     buf.write("\ufeff")
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["codigo", "nombre", "telefono", "email", "cumple", "xp", "nivel",
+    w.writerow(["codigo", "nombre", "apodo", "telefono", "email", "cumple", "xp", "nivel",
                 "visitas", "gastado", "alta"])
     with get_db() as db:
         rows = db.execute("SELECT * FROM customers WHERE tenant_id=? ORDER BY xp DESC",
                           (tenant["id"],)).fetchall()
     for r in rows:
         lv, _ = level_for_xp(r["xp"], cfg["levels"])
-        w.writerow([r["code"], r["name"], r["phone"] or "", r["email"] or "",
+        w.writerow([r["code"], r["name"], (r["nickname"] if "nickname" in r.keys() else "") or "",
+                    r["phone"] or "", r["email"] or "",
                     r["birthday"] or "", r["xp"], lv["name"] if lv else "",
                     r["visits"], f'{r["total_spent"]:.2f}', r["created_at"][:10]])
     return buf.getvalue()

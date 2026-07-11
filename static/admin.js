@@ -135,7 +135,28 @@ async function renderDashboard(){
   const s = await api('/api/stats');
   const dist = s.level_distribution || {};
   const maxDist = Math.max(1, ...Object.values(dist));
-  $('#dash-body').innerHTML = `
+  let extras='';
+  try{
+    const [info,bd] = await Promise.all([api('/api/info'), api('/api/birthdays')]);
+    if(info.billing_notice){
+      const n=info.billing_notice;
+      extras += `<div style="padding:12px 16px;border-radius:12px;margin-bottom:14px;
+        background:${n.days_left<0?'#fdf0ee':'#fdf6e8'};border:1px solid ${n.days_left<0?'#f0cfca':'#ecd9ab'};
+        color:${n.days_left<0?'var(--bad)':'#8a6414'};font-weight:600;font-size:13.5px">
+        ${n.days_left<0?'⚠️ Tu suscripción venció el '+fdate(n.paid_until)+'. Contacta con tu proveedor para renovarla y evitar la suspensión.'
+          :'ℹ️ Tu suscripción se renueva el '+fdate(n.paid_until)+' ('+(n.days_left===0?'hoy':'en '+n.days_left+' día'+(n.days_left===1?'':'s'))+').'}</div>`;
+    }
+    if(bd.birthdays.length){
+      extras += `<div class="card section-card" style="border-left:4px solid #e56aa2">
+        <h3>🎂 Cumpleaños de hoy</h3>
+        <div class="hint">¡Felicítales cuando vengan! ${bd.bonus?`El bono de +${bd.bonus} pts se les aplica solo.`:''}</div>
+        ${bd.birthdays.map(b=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line)">
+          <span><strong>${esc(b.name)}</strong>${b.phone?` <span class="sub">${esc(b.phone)}</span>`:''}</span>
+          <span class="sub">${b.bonus_applied?'✓ bono aplicado':''}</span></div>`).join('')}
+      </div>`;
+    }
+  }catch{}
+  $('#dash-body').innerHTML = extras + `
     <div class="card section-card" style="border-left:4px solid var(--gold)">
       <h3>⚡ Cobro rápido</h3>
       <div class="hint">Teléfono o código del cliente + importe de la cuenta. Nada más.</div>
@@ -661,6 +682,42 @@ function drawAdminRanking(which){
 }
 
 /* ================= AJUSTES ================= */
+function printPoster(){
+  const b=CONFIG.business, t=CONFIG.theme;
+  const url = location.origin + TBASE.replace('/admin','') + '/';
+  let qrHtml='';
+  try{ const q=qrcode(0,'M'); q.addData(url); q.make(); qrHtml=q.createImgTag(5,0); }catch{ qrHtml='<code>'+url+'</code>'; }
+  const card = `
+    <div class="poster">
+      <div class="head" style="background:${t.primary}">
+        ${b.logo_data?`<img class="lg" src="${b.logo_data}">`:''}
+        <div class="nm">${esc(b.name)}</div>
+      </div>
+      <div class="body">
+        <div class="big">Escanea y suma puntos</div>
+        <div class="qr">${qrHtml}</div>
+        <div class="steps">1 · Escanea con la cámara &nbsp;·&nbsp; 2 · Consulta tus puntos<br>3 · Sube de nivel y canjea premios</div>
+      </div>
+      <div class="foot" style="color:${t.primary}">${esc(b.tagline||'Cada visita suma')}</div>
+    </div>`;
+  const w=window.open('','_blank','width=850,height=1000');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Cartel · ${esc(b.name)}</title><style>
+    @page{size:A4;margin:8mm}
+    body{font-family:system-ui,sans-serif;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:6mm;padding:4mm}
+    .poster{border:1.5px dashed #bbb;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;height:128mm}
+    .head{color:#fff;padding:8mm 6mm 6mm;text-align:center}
+    .lg{width:16mm;height:16mm;object-fit:contain;border-radius:4mm;background:#fff;padding:1.5mm;margin-bottom:2mm}
+    .nm{font-size:19px;font-weight:800}
+    .body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4mm;text-align:center}
+    .big{font-size:16px;font-weight:800;color:#222;margin-bottom:3mm}
+    .qr img{width:42mm;height:42mm}
+    .steps{font-size:10.5px;color:#666;margin-top:3mm;line-height:1.5}
+    .foot{text-align:center;font-weight:700;font-size:12px;padding:0 4mm 5mm}
+    </style></head><body>${card}${card}${card}${card}
+    <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script></body></html>`);
+  w.document.close();
+}
+
 async function renderSettings(){
   const m=$('#main');
   m.innerHTML=`<div class="page-head"><div><h1>Ajustes</h1><div class="sub">Dispositivos, datos y seguridad</div></div></div>
@@ -671,6 +728,11 @@ async function renderSettings(){
       <div class="field"><label>Contraseña actual</label><input id="pw-cur" type="password"></div>
       <div class="field"><label>Nueva contraseña</label><input id="pw-new" type="password"></div>
       <button class="btn btn-primary" onclick="changePw()">Actualizar contraseña</button>
+    </div>
+    <div class="card section-card" style="border-left:4px solid var(--gold)">
+      <h3>🖨 Cartel para mesas</h3>
+      <div class="hint">Imprime un A4 con 4 carteles recortables con tu QR y tus colores. Ponlos en mesas, barra o caja.</div>
+      <button class="btn btn-primary" onclick="printPoster()">Imprimir cartel de mesas</button>
     </div>`;
   loadDevices();
   loadBackupInfo();

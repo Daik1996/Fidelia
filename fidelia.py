@@ -290,6 +290,8 @@ def init_db():
         ccols = [r["name"] for r in db.execute("PRAGMA table_info(customers)").fetchall()]
         if "nickname" not in ccols:
             db.execute("ALTER TABLE customers ADD COLUMN nickname TEXT")
+        if "birthday_bonus_year" not in ccols:
+            db.execute("ALTER TABLE customers ADD COLUMN birthday_bonus_year INTEGER")
         if db.execute("SELECT COUNT(*) c FROM platform_users").fetchone()["c"] == 0:
             db.execute("INSERT INTO platform_users (username, password_hash, created_at) VALUES (?,?,?)",
                        ("admin", hash_password("admin"), now_iso()))
@@ -477,12 +479,67 @@ def check_billing():
             set_tenant_active(r["id"], True)
 
 
+def grant_birthday_bonuses():
+    """Entrega automáticamente el bono de cumpleaños configurado por cada restaurante.
+    Idempotente: una sola vez por cliente y año, solo a clientes activos."""
+    today = datetime.now(timezone.utc).date()
+    md = f"{today.month:02d}-{today.day:02d}"
+    year = today.year
+    granted = 0
+    with get_db() as db:
+        tenants = db.execute("SELECT id, config FROM tenants WHERE active = 1").fetchall()
+        for t in tenants:
+            cfg = _merge_defaults(DEFAULT_CONFIG, json.loads(t["config"]))
+            bonus = as_int(cfg["earning"].get("birthday_bonus", 0))
+            if bonus <= 0:
+                continue
+            rows = db.execute(
+                "SELECT id FROM customers WHERE tenant_id = ? AND active = 1 "
+                "AND birthday IS NOT NULL AND substr(birthday, 6, 5) = ? "
+                "AND (birthday_bonus_year IS NULL OR birthday_bonus_year < ?)",
+                (t["id"], md, year)).fetchall()
+            for c in rows:
+                db.execute("UPDATE customers SET xp = xp + ?, birthday_bonus_year = ? WHERE id = ?",
+                           (bonus, year, c["id"]))
+                db.execute("INSERT INTO transactions (customer_id, kind, amount, xp_delta, note, created_at) "
+                           "VALUES (?,?,?,?,?,?)",
+                           (c["id"], "birthday", 0, bonus, "🎂 Bono de cumpleaños", now_iso()))
+                granted += 1
+    return granted
+
+
+def prune_rate_limits():
+    """Evita que el almacén del rate-limit crezca sin límite con los meses."""
+    now = time.time()
+    with _rl_lock:
+        dead = [k for k, hits in _rl_store.items() if not hits or now - max(hits) > 3600]
+        for k in dead:
+            _rl_store.pop(k, None)
+
+
+def t_birthdays(ctx):
+    """Cumpleaños de HOY de este restaurante (para felicitar en el local)."""
+    today = datetime.now(timezone.utc).date()
+    md = f"{today.month:02d}-{today.day:02d}"
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT id, name, phone, xp, birthday_bonus_year FROM customers "
+            "WHERE tenant_id = ? AND active = 1 AND birthday IS NOT NULL "
+            "AND substr(birthday, 6, 5) = ? ORDER BY name", (ctx.tenant["id"], md)).fetchall()
+    bonus = as_int(ctx.tenant["config"]["earning"].get("birthday_bonus", 0))
+    return {"bonus": bonus, "birthdays": [
+        {"id": r["id"], "name": r["name"], "phone": r["phone"], "xp": r["xp"],
+         "bonus_applied": r["birthday_bonus_year"] == today.year} for r in rows]}
+
+
 def start_billing_thread():
     def loop():
         while True:
             try:
                 check_billing()
                 purge_expired_sessions()
+                grant_birthday_bonuses()
+                prune_rate_limits()
             except Exception:
                 pass
             time.sleep(3600)
@@ -1339,10 +1396,21 @@ def t_info(ctx):
     with get_db() as db:
         customers = db.execute("SELECT COUNT(*) c FROM customers WHERE tenant_id = ?",
                                (ctx.tenant["id"],)).fetchone()["c"]
+    notice = None
+    b = get_billing(ctx.tenant["id"])
+    if b.get("enabled") and b.get("paid_until"):
+        try:
+            until = datetime.fromisoformat(b["paid_until"]).date()
+            days_left = (until - datetime.now(timezone.utc).date()).days
+            if days_left <= 7:
+                notice = {"paid_until": b["paid_until"][:10], "days_left": days_left}
+        except Exception:
+            pass
     return {
         "db_path": DB_PATH, "backup_dir": BACKUP_DIR,
         "last_backup": (datetime.fromtimestamp(last_mtime).isoformat() if last_mtime else None),
         "backups_kept": BACKUP_KEEP, "customers": customers,
+        "billing_notice": notice,
     }
 
 
@@ -1808,6 +1876,7 @@ TENANT_ROUTES = [
     ("POST",   r"/api/customers/(?P<cid>\d+)/earn",   t_earn,   True),
     ("POST",   r"/api/customers/(?P<cid>\d+)/adjust", t_adjust, True),
     ("POST",   r"/api/customers/(?P<cid>\d+)/redeem", t_redeem, True),
+    ("GET",    r"/api/birthdays",   t_birthdays,      True),
     ("GET",    r"/api/stats",       t_stats,          True),
 ]
 P_COMPILED = [(m, re.compile("^" + pat + "$"), fn, auth) for (m, pat, fn, auth) in PLATFORM_ROUTES]
@@ -2009,7 +2078,12 @@ class Handler(BaseHTTPRequestHandler):
         # ---- Globales ---- #
         if method == "GET":
             if path == "/healthz":
-                return self._send_json(200, {"ok": True})
+                try:
+                    with get_db() as db:
+                        db.execute("SELECT 1")
+                    return self._send_json(200, {"ok": True})
+                except Exception:
+                    return self._send_json(500, {"ok": False})
             if path in ("/", "/platform"):
                 return self._send_file(os.path.join(STATIC_DIR, "platform.html"))
             if path == "/sw.js":
@@ -2170,6 +2244,10 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     init_db()
     backup_if_stale()
+    try:
+        grant_birthday_bonuses()
+    except Exception:
+        pass
     start_backup_thread()
     start_billing_thread()
     host = os.environ.get("FIDELIA_HOST", "0.0.0.0")

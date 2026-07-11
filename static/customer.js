@@ -38,7 +38,24 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
   }
   // Ranking
   if(CFG.features.public_ranking) loadRanking();
+  // Catálogo público (niveles + premios) visible sin identificarse
+  renderCatalog();
 })();
+
+function renderCatalog(){
+  const lv=CFG.levels||[], rw=(CFG.rewards||[]);
+  if(!lv.length && !rw.length) return;
+  $('#cat-levels').innerHTML = lv.map(l=>`
+    <div class="rank-row"><span class="rank-n" style="background:${l.color};color:#fff;border-radius:8px">★</span>
+      <div><strong>${esc(l.name)}</strong><div class="muted">${esc(l.perk||'')}</div></div>
+      <span class="rank-xp">${l.min_xp}+ pts</span></div>`).join('');
+  $('#cat-rewards').innerHTML = rw.length ? rw.map(r=>`
+    <div class="rank-row"><span class="rank-n" style="background:var(--accent);color:#3a2600;border-radius:8px">🎁</span>
+      <div><strong>${esc(r.name)}</strong><div class="muted">${esc(r.desc||'')}</div></div>
+      <span class="rank-xp">${r.cost_xp} pts</span></div>`).join('')
+    : '<div class="muted">Pronto habrá premios disponibles.</div>';
+  $('#catalog-sec').classList.remove('hide');
+}
 
 function applyTheme(t){
   const r = document.documentElement.style;

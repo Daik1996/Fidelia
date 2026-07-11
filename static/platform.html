@@ -11,8 +11,8 @@
 <style>
   :root{
     /* TEMA OSCURO: este es el panel del PROPIETARIO (el de los restaurantes es claro) */
-    --plum:#a85585; --plum-700:#c06a9e; --gold:#e8b13c; --ink:#f3ecf1; --muted:#a896a3;
-    --muted:#ab98a6; --line:#3b2c39; --bg:#17101a; --card:#221925; --ok:#3fae72; --bad:#e05a48;
+    --plum:#c06a9e; --plum-700:#d585b5; --gold:#f2b63d; --ink:#faf5f8; --muted:#c2afbc;
+    --line:#4d3a4a; --bg:#120b14; --card:#251a29; --ok:#4cc985; --bad:#ff6b57;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 34px rgba(0,0,0,.35); --radius:14px;
   }
   *{box-sizing:border-box}
@@ -21,14 +21,16 @@
   h1,h2,h3{font-family:'Bricolage Grotesque',sans-serif;letter-spacing:-.02em;margin:0}
   button{font-family:inherit;cursor:pointer;border:none;background:none}
   input,select{font-family:inherit;font-size:14px;width:100%;padding:9px 11px;
-    border:1px solid var(--line);border-radius:9px;background:#2b1f2e;color:var(--ink)}
+    border:1px solid var(--line);border-radius:9px;background:#332536;color:var(--ink)}
+  input::placeholder{color:#8f7d8b}
   select option{background:#2b1f2e;color:var(--ink)}
   input:focus,select:focus{outline:2px solid var(--plum);outline-offset:-1px}
   label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:0 0 5px}
   .btn{display:inline-flex;align-items:center;gap:7px;justify-content:center;padding:9px 16px;
     border-radius:9px;font-weight:600;font-size:14px;transition:.12s;white-space:nowrap;text-decoration:none}
   .btn-primary{background:var(--plum);color:#fff}.btn-primary:hover{background:var(--plum-700)}
-  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+  .btn-ghost{background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--ink)}
+  .btn-ghost:hover{background:rgba(255,255,255,.1);border-color:#6a5266}
   .btn-ghost:hover{border-color:var(--plum);color:var(--plum)}
   .btn-danger{background:transparent;border:1px solid #6d3730;color:var(--bad)}
   .btn-sm{padding:6px 11px;font-size:13px}
@@ -78,7 +80,7 @@
   .toast{background:var(--ink);color:#fff;padding:12px 16px;border-radius:10px;font-size:14px;box-shadow:var(--shadow)}
   .toast.ok{background:var(--ok)}.toast.bad{background:var(--bad)}
   .empty{text-align:center;color:var(--muted);padding:40px 20px}
-  code.codebox{background:#31232f;padding:2px 7px;border-radius:6px;font-weight:600;color:var(--plum);font-size:12.5px;word-break:break-all}
+  code.codebox{background:#3a2a3d;padding:2px 7px;border-radius:6px;font-weight:600;color:var(--plum);font-size:12.5px;word-break:break-all}
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .section-card{padding:22px;margin-bottom:18px}
   @media(max-width:640px){.form-grid{grid-template-columns:1fr}}
@@ -88,13 +90,10 @@
 
 <div id="login">
   <div class="card">
-    <div class="brand"><svg class="logo" viewBox="0 0 48 48" width="44" height="44" aria-hidden="true">
-  <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#a85585"/><stop offset="1" stop-color="#5a2547"/></linearGradient></defs>
-  <rect x="2" y="2" width="44" height="44" rx="13" fill="url(#lg)"/>
-  <rect x="2" y="2" width="44" height="44" rx="13" fill="none" stroke="#e8b13c" stroke-opacity=".55" stroke-width="1.4"/>
-  <path d="M17 34 V14 h14 v4.6 h-8.6 v4.4 h7.4 v4.6 h-7.4 V34 Z" fill="#fff"/>
-  <circle cx="34.5" cy="15" r="3.1" fill="#e8b13c"/>
+    <div class="brand"><svg class="logo" viewBox="0 0 48 48" width="42" height="42" aria-hidden="true">
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#8d4470"/>
+  <path d="M16.5 35 V13 h15.5 v5 h-9.4 v4.6 h8 v5 h-8 V35 Z" fill="#ffffff"/>
+  <rect x="33.5" y="13" width="5" height="5" rx="1.6" fill="#f2b63d"/>
 </svg><div class="brand-name">Fidelia</div></div>
     <p class="sub" style="margin-bottom:22px">Plataforma · Panel del propietario</p>
     <div class="field"><label>Usuario</label><input id="lg-user" autocomplete="username"></div>
@@ -107,13 +106,10 @@
 <div id="app" class="hide">
   <div class="wrap">
     <div class="page-head">
-      <div class="brand"><svg class="logo" viewBox="0 0 48 48" width="44" height="44" aria-hidden="true">
-  <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#a85585"/><stop offset="1" stop-color="#5a2547"/></linearGradient></defs>
-  <rect x="2" y="2" width="44" height="44" rx="13" fill="url(#lg)"/>
-  <rect x="2" y="2" width="44" height="44" rx="13" fill="none" stroke="#e8b13c" stroke-opacity=".55" stroke-width="1.4"/>
-  <path d="M17 34 V14 h14 v4.6 h-8.6 v4.4 h7.4 v4.6 h-7.4 V34 Z" fill="#fff"/>
-  <circle cx="34.5" cy="15" r="3.1" fill="#e8b13c"/>
+      <div class="brand"><svg class="logo" viewBox="0 0 48 48" width="42" height="42" aria-hidden="true">
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#8d4470"/>
+  <path d="M16.5 35 V13 h15.5 v5 h-9.4 v4.6 h8 v5 h-8 V35 Z" fill="#ffffff"/>
+  <rect x="33.5" y="13" width="5" height="5" rx="1.6" fill="#f2b63d"/>
 </svg>
         <div><div class="brand-name">Fidelia <span class="owner-badge" style="vertical-align:3px;margin-left:6px">Panel del propietario</span></div>
         <div class="sub">Gestiona los restaurantes de tus clientes</div></div></div>

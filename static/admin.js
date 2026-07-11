@@ -82,11 +82,11 @@ function showSetupWizard(){
       <div class="card modal" style="max-width:480px">
         <div class="brand" style="margin-bottom:6px"><div class="brand-mark">F</div><div class="brand-name">Fidelia</div></div>
         <p class="sub" style="margin-bottom:20px">Configura tu negocio en 1 minuto. Podrás cambiarlo todo después.</p>
-        <div class="field"><label>Nombre del negocio *</label><input id="sw-name" placeholder="Ej. Cafetería Central"></div>
-        <div class="field"><label>Eslogan</label><input id="sw-tag" placeholder="Cada visita suma"></div>
+        <div class="field"><label>Nombre del negocio *</label><input id="sw-name" value="${esc(CONFIG.business.name||'')}" placeholder="Ej. Cafetería Central"></div>
+        <div class="field"><label>Eslogan</label><input id="sw-tag" value="${esc(CONFIG.business.tagline||'')}" placeholder="Cada visita suma"></div>
         <div class="form-grid">
-          <div class="field"><label>Moneda</label><input id="sw-cur" value="€"></div>
-          <div class="field"><label>Color principal</label><input id="sw-color" type="color" class="swatch" value="#6d3b5e" style="width:100%;height:40px"></div>
+          <div class="field"><label>Moneda</label><input id="sw-cur" value="${esc(CONFIG.business.currency_symbol||'€')}"></div>
+          <div class="field"><label>Color principal</label><input id="sw-color" type="color" class="swatch" value="${CONFIG.theme.primary||'#6d3b5e'}" style="width:100%;height:40px"></div>
         </div>
         <div class="field"><label>Tipo de negocio (aplica niveles y recompensas sugeridos)</label>
           <select id="sw-tpl">
@@ -119,6 +119,8 @@ async function finishSetup(){
 
 function setView(v){
   VIEW = v;
+  $('#sidebar')?.classList.remove('open');
+  $('#nav-backdrop')?.classList.remove('show');
   $$('.nav-item[data-view]').forEach(n=>n.classList.toggle('active', n.dataset.view===v));
   ({dashboard:renderDashboard, customers:renderCustomers, register:renderRegister,
     program:renderProgram, ranking:renderRanking, settings:renderSettings}[v] || renderDashboard)();
@@ -206,9 +208,12 @@ async function renderCustomers(){
   loadCustomers();
 }
 async function loadCustomers(){
-  const st=$('#f-status')?.value||'all', lv=$('#f-level')?.value||'', so=$('#f-sort')?.value||'xp';
-  const {customers,total}=await api(`/api/customers?q=${encodeURIComponent(custQuery)}&status=${st}&level=${lv}&sort=${so}`);
   const el=$('#cust-list'); if(!el) return;
+  let customers=[], total=0;
+  try{
+    const st=$('#f-status')?.value||'all', lv=$('#f-level')?.value||'', so=$('#f-sort')?.value||'xp';
+    ({customers,total}=await api(`/api/customers?q=${encodeURIComponent(custQuery||'')}&status=${st}&level=${lv}&sort=${so}`));
+  }catch(e){ el.innerHTML=`<div class="empty">No se pudo cargar la lista: ${esc(e.message)}. <a href="#" onclick="event.preventDefault();loadCustomers()">Reintentar</a></div>`; return; }
   if(!customers.length){ el.innerHTML='<div class="empty">Sin resultados con estos filtros.</div>'; return; }
   el.innerHTML=`<table><thead><tr><th>Cliente</th><th>Nivel</th><th>Puntos</th><th>Visitas</th><th>Canjes</th><th>Estado</th></tr></thead>
     <tbody>${customers.map(c=>`

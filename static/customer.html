@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Club de fidelidad</title>
+<meta name="theme-color" content="#6d3b5e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<script src="/static/qrcode.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link id="font-link" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --primary:#6d3b5e; --accent:#e0a021; --ink:#231c21; --muted:#7d747a;
+    --bg:#faf7f8; --card:#fff; --line:#eee; --radius:16px; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:var(--font,'Inter'),system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+  body.dark{--bg:#181318;--card:#241d24;--ink:#f3edf1;--muted:#a99fa6;--line:#352b34}
+  .wrap{max-width:560px;margin:0 auto;padding:0 18px 60px}
+  header{background:var(--primary);color:#fff;padding:30px 0 60px;position:relative;overflow:hidden}
+  header::after{content:'';position:absolute;right:-60px;top:-60px;width:200px;height:200px;
+    background:var(--accent);opacity:.18;border-radius:50%}
+  .hwrap{max-width:560px;margin:0 auto;padding:0 18px;position:relative;z-index:1}
+  .logo{display:flex;align-items:center;gap:12px}
+  .logo img{width:46px;height:46px;border-radius:12px;object-fit:contain;background:#fff;padding:3px}
+  .logo .fallback{width:46px;height:46px;border-radius:12px;background:rgba(255,255,255,.18);
+    display:grid;place-items:center;font-weight:800;font-size:22px}
+  .biz-name{font-weight:800;font-size:24px;letter-spacing:-.02em}
+  .tagline{opacity:.85;margin-top:8px;font-size:15px;max-width:90%}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:0 10px 40px rgba(0,0,0,.06);padding:22px}
+  .lift{margin-top:-34px;position:relative;z-index:2}
+  input{width:100%;padding:13px 15px;border:1px solid var(--line);border-radius:11px;font-size:16px;
+    background:var(--card);color:var(--ink)}
+  input:focus{outline:2px solid var(--primary);border-color:var(--primary)}
+  .btn{width:100%;padding:13px;border:none;border-radius:11px;background:var(--primary);color:#fff;
+    font-weight:700;font-size:15px;cursor:pointer;margin-top:12px}
+  .btn:hover{filter:brightness(1.08)}
+  h2{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
+  .muted{color:var(--muted);font-size:14px}
+  .card-mine{background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--primary) 60%, #000));
+    color:#fff;border:none}
+  .lvl-badge{display:inline-block;padding:4px 12px;border-radius:20px;font-weight:700;font-size:13px;
+    background:rgba(255,255,255,.2)}
+  .xp-big{font-size:44px;font-weight:800;letter-spacing:-.02em;margin:10px 0 2px}
+  .progress{height:10px;background:rgba(255,255,255,.25);border-radius:8px;overflow:hidden;margin-top:14px}
+  .progress>span{display:block;height:100%;background:var(--accent)}
+  .section{margin-top:22px}
+  .section h3{font-size:16px;margin:0 0 12px}
+  .reward{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;
+    border:1px solid var(--line);border-radius:12px;margin-bottom:10px;background:var(--card)}
+  .reward.locked{opacity:.55}
+  .reward .cost{background:var(--accent);color:#3a2600;padding:4px 11px;border-radius:20px;font-weight:700;font-size:13px;white-space:nowrap}
+  .rank-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .rank-row:last-child{border:none}
+  .rank-n{width:26px;height:26px;border-radius:50%;background:var(--line);display:grid;place-items:center;font-weight:700;font-size:13px}
+  .rank-row.top .rank-n{background:var(--accent);color:#3a2600}
+  .rank-xp{margin-left:auto;font-weight:700}
+  .err{color:#c0392b;font-size:14px;margin-top:10px;text-align:center}
+  .hide{display:none!important}
+  .foot{text-align:center;color:var(--muted);font-size:12px;margin-top:30px}
+</style>
+</head>
+<body>
+<header>
+  <div class="hwrap">
+    <div class="logo" id="logo"></div>
+    <p class="tagline" id="tagline"></p>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- Consulta -->
+  <div class="card lift" id="lookup-card">
+    <h2 id="welcome-title">Tu club de fidelidad</h2>
+    <p class="muted" id="lookup-help" style="margin-bottom:16px"></p>
+    <input id="q" placeholder="Teléfono o código" autocomplete="off">
+    <button class="btn" onclick="lookup()">Ver mis puntos</button>
+    <p class="err hide" id="err"></p>
+  </div>
+
+  <!-- Ficha del cliente -->
+  <div id="mine" class="hide">
+    <div class="card card-mine lift">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div><div class="muted" style="color:rgba(255,255,255,.8)">Hola,</div>
+          <div style="font-size:20px;font-weight:800" id="m-name"></div></div>
+        <span class="lvl-badge" id="m-level"></span>
+      </div>
+      <div class="xp-big"><span id="m-xp">0</span> <span style="font-size:20px;opacity:.7">XP</span></div>
+      <div id="m-next" class="muted" style="color:rgba(255,255,255,.85)"></div>
+      <div class="progress" id="m-prog-wrap"><span id="m-prog" style="width:0%"></span></div>
+    </div>
+
+    <!-- Tarjeta / carné digital con QR -->
+    <div class="card" style="text-align:center;margin-top:14px">
+      <h3 style="margin:0 0 4px">Tu tarjeta</h3>
+      <p class="muted" style="margin:0 0 14px">Muéstrala en el local para sumar puntos</p>
+      <div id="m-qr" style="display:inline-block;padding:10px;background:#fff;border-radius:12px"></div>
+      <div style="margin-top:12px;font-size:26px;font-weight:800;letter-spacing:3px" id="m-code"></div>
+    </div>
+
+    <div class="section"><h3>Tus recompensas</h3><div id="m-rewards"></div></div>
+    <button class="btn" style="background:var(--card);color:var(--primary);border:1px solid var(--line)" onclick="reset()">Consultar otro código</button>
+  </div>
+
+  <!-- Ranking -->
+  <div class="section hide" id="ranking-sec">
+    <div class="card"><h3 id="rank-title" style="margin-top:0"></h3><div id="rank-list"></div></div>
+  </div>
+
+  <div class="foot">Programa de fidelidad · <span id="foot-name"></span></div>
+</div>
+
+<!-- Aviso instalar app -->
+<div id="install-banner" class="hide" style="position:fixed;left:12px;right:12px;bottom:12px;max-width:536px;margin:0 auto;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;
+  box-shadow:0 10px 40px rgba(0,0,0,.15);display:flex;align-items:center;gap:12px;z-index:60">
+  <div style="flex:1"><strong>Instala la app</strong><div class="muted">Añádela a tu pantalla de inicio para acceder rápido.</div></div>
+  <button class="btn" style="width:auto;margin:0" onclick="installApp()">Instalar</button>
+  <button onclick="dismissInstall()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer">×</button>
+</div>
+
+<script src="/static/customer.js"></script>
+</body>
+</html>

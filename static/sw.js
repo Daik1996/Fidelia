@@ -1,44 +1,32 @@
-/* Fidelia — Service Worker (PWA offline shell) */
-const CACHE = 'fidelia-v1';
-const SHELL = [
-  '/static/admin.js', '/static/customer.js', '/static/qrcode.min.js',
-  '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable.png',
-];
+/* Fidelia — Service Worker v2
+   Reglas: la API NUNCA se cachea (en ninguna ruta, incluido /r/<slug>/api/…).
+   Todo lo demás va a la RED PRIMERO y solo usa la caché si no hay conexión.
+   Así las actualizaciones llegan siempre y los datos jamás se quedan congelados. */
+const CACHE = 'fidelia-v2';
 
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
-});
+self.addEventListener('install', e => { self.skipWaiting(); });
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET') return;                 // nunca cachear POST/PUT/DELETE
-  if (url.pathname.startsWith('/api/')) return;           // la API siempre va a la red
+  if (e.request.method !== 'GET') return;               // nunca tocar POST/PUT/DELETE
+  if (url.pathname.includes('/api/')) return;           // la API SIEMPRE va a la red (cualquier ruta)
+  if (url.pathname.endsWith('.webmanifest')) return;    // manifiestos dinámicos: siempre red
 
-  // Navegaciones: red primero, con respaldo en caché (offline)
-  if (e.request.mode === 'navigate') {
-    e.respondWith(
-      fetch(e.request).then(r => {
+  // Red primero; caché solo como respaldo sin conexión
+  e.respondWith(
+    fetch(e.request).then(r => {
+      if (r && r.ok) {
         const copy = r.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));
-        return r;
-      }).catch(() => caches.match(e.request))
-    );
-    return;
-  }
-
-  // Estáticos: caché primero
-  e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request).then(r => {
-      const copy = r.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copy));
+      }
       return r;
-    }).catch(() => cached))
+    }).catch(() => caches.match(e.request))
   );
 });

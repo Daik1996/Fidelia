@@ -1845,7 +1845,7 @@ def tenant_manifest(tenant, admin=False):
 # --------------------------------------------------------------------------- #
 COMPRESSIBLE = {"application/json", "text/html", "application/javascript",
                 "text/css", "image/svg+xml", "application/manifest+json", "text/csv"}
-STATIC_CACHE = {".js", ".css", ".png", ".svg", ".ico", ".webmanifest", ".jpg"}
+STATIC_CACHE = {".png", ".svg", ".ico", ".jpg"}   # solo imágenes: JS/CSS siempre frescos
 
 
 class Handler(BaseHTTPRequestHandler):

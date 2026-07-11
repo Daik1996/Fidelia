@@ -276,6 +276,17 @@ def init_db():
         cols = [r["name"] for r in db.execute("PRAGMA table_info(tenants)").fetchall()]
         if "billing" not in cols:
             db.execute("ALTER TABLE tenants ADD COLUMN billing TEXT")
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                method TEXT NOT NULL,          -- 'manual' | 'stripe'
+                note TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id);
+        """)
         ccols = [r["name"] for r in db.execute("PRAGMA table_info(customers)").fetchall()]
         if "nickname" not in ccols:
             db.execute("ALTER TABLE customers ADD COLUMN nickname TEXT")
@@ -396,6 +407,22 @@ def set_tenant_active(tenant_id, active):
         db.execute("UPDATE tenants SET active = ? WHERE id = ?", (1 if active else 0, tenant_id))
 
 
+def tenant_price(b):
+    """Cuota mensual del restaurante: la suya propia o, si no tiene, la global."""
+    own = b.get("price_eur")
+    if own not in (None, "", 0):
+        return as_float(own, 0.0)
+    return as_float(get_setting("price_eur", "29"), 29.0)
+
+
+def record_payment(tenant_id, amount, method, note=None):
+    if amount is None or amount <= 0:
+        return
+    with get_db() as db:
+        db.execute("INSERT INTO payments (tenant_id, amount, method, note, created_at) VALUES (?,?,?,?,?)",
+                   (tenant_id, round(float(amount), 2), method, note, now_iso()))
+
+
 def apply_payment(tenant_id, days=None, paid_until_ts=None):
     """Registra un pago: extiende paid_until y reactiva si estaba suspendido por impago."""
     b = get_billing(tenant_id)
@@ -455,6 +482,7 @@ def start_billing_thread():
         while True:
             try:
                 check_billing()
+                purge_expired_sessions()
             except Exception:
                 pass
             time.sleep(3600)
@@ -531,6 +559,14 @@ def process_stripe_event(evt):
             except Exception:
                 pass
             apply_payment(tid, days=32, paid_until_ts=period_end)
+            amount = None
+            for key in ("amount_paid", "amount_due", "total"):
+                if obj.get(key) is not None:
+                    amount = as_float(obj.get(key), 0) / 100.0
+                    break
+            if not amount:
+                amount = tenant_price(get_billing(tid))
+            record_payment(tid, amount, "stripe", "Suscripción Stripe")
     elif etype == "invoice.payment_failed":
         tid = _tenant_by_subscription(obj.get("subscription"))
         if tid:
@@ -711,13 +747,26 @@ def rate_limit(key, limit, window_s):
 # --------------------------------------------------------------------------- #
 #  Sesiones                                                                   #
 # --------------------------------------------------------------------------- #
+MAX_SESSIONS_PER_USER = 10
+
+
 def create_session(kind, user_id):
     token = secrets.token_urlsafe(32)
     expires = datetime.now(timezone.utc) + timedelta(days=SESSION_TTL_DAYS)
     with get_db() as db:
         db.execute("INSERT INTO sessions (token, kind, user_id, created_at, expires_at) VALUES (?,?,?,?,?)",
                    (token, kind, user_id, now_iso(), expires.isoformat()))
+        # tope de sesiones vivas por usuario: las más antiguas caducan solas
+        db.execute("""DELETE FROM sessions WHERE kind = ? AND user_id = ? AND token NOT IN (
+                        SELECT token FROM sessions WHERE kind = ? AND user_id = ?
+                        ORDER BY created_at DESC LIMIT ?)""",
+                   (kind, user_id, kind, user_id, MAX_SESSIONS_PER_USER))
     return token
+
+
+def purge_expired_sessions():
+    with get_db() as db:
+        db.execute("DELETE FROM sessions WHERE expires_at < ?", (now_iso(),))
 
 
 def session_user(token, kind):
@@ -790,7 +839,8 @@ def as_float(v, default=0.0):
 #  HANDLERS — PLATAFORMA (propietario)                                        #
 # =========================================================================== #
 def p_login(ctx):
-    if not rate_limit(f"plogin:{ctx.ip}", 8, 300):
+    username_key = str(ctx.body.get("username") or "")[:40].lower()
+    if not rate_limit(f"plogin:{ctx.ip}:{username_key}", 8, 300):
         raise HttpError(429, "Demasiados intentos. Espera unos minutos.")
     username = str(need(ctx.body, "username")).strip()
     password = need(ctx.body, "password")
@@ -815,8 +865,8 @@ def p_me(ctx):
 def p_password(ctx):
     cur = need(ctx.body, "current_password")
     new = need(ctx.body, "new_password")
-    if len(new) < 4:
-        raise HttpError(400, "La nueva contraseña debe tener al menos 4 caracteres")
+    if len(new) < 8:
+        raise HttpError(400, "La nueva contraseña debe tener al menos 8 caracteres")
     with get_db() as db:
         row = db.execute("SELECT password_hash FROM platform_users WHERE id = ?", (ctx.user["id"],)).fetchone()
         if not verify_password(cur, row["password_hash"]):
@@ -850,6 +900,8 @@ def p_list_tenants(ctx):
         admins = {}
         for r in db.execute("SELECT tenant_id, username FROM admin_users ORDER BY id").fetchall():
             admins.setdefault(r["tenant_id"], []).append(r["username"])
+        revenue = {r["tenant_id"]: r["s"] for r in
+                   db.execute("SELECT tenant_id, COALESCE(SUM(amount),0) s FROM payments GROUP BY tenant_id").fetchall()}
     out = []
     for r in rows:
         cfg = _merge_defaults(DEFAULT_CONFIG, json.loads(r["config"]))
@@ -861,6 +913,8 @@ def p_list_tenants(ctx):
             "primary": cfg["theme"]["primary"], "setup_done": cfg.get("setup_done", False),
             "billing": {"enabled": b["enabled"], "status": b["status"], "paid_until": b["paid_until"]},
             "pay_state": _pay_state(b),
+            "price": tenant_price(b),
+            "revenue_total": round(revenue.get(r["id"], 0), 2),
         })
     out.sort(key=lambda t: (-t["customers"], t["created_at"]))
     return {"tenants": out}
@@ -1001,6 +1055,42 @@ def p_delete_tenant(ctx):
     return {"ok": True, "deleted": t["name"]}
 
 
+def p_revenue(ctx):
+    """Resumen de ingresos del propietario: total, mes actual, MRR y últimos 6 meses."""
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    with get_db() as db:
+        total = db.execute("SELECT COALESCE(SUM(amount),0) s FROM payments").fetchone()["s"]
+        this_month = db.execute("SELECT COALESCE(SUM(amount),0) s FROM payments WHERE created_at >= ?",
+                                (month_start.isoformat(),)).fetchone()["s"]
+        rows = db.execute("SELECT amount, created_at FROM payments WHERE created_at >= ?",
+                          ((month_start - timedelta(days=185)).isoformat(),)).fetchall()
+        tenants = db.execute("SELECT id, active, billing FROM tenants").fetchall()
+    months = []
+    y, m = now.year, now.month
+    for _ in range(6):
+        months.append((y, m))
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    per = {f"{yy:04d}-{mm:02d}": 0.0 for yy, mm in months}
+    for r in rows:
+        key = r["created_at"][:7]
+        if key in per:
+            per[key] += r["amount"]
+    series = [{"label": f"{MONTHS_ES[mm-1][:3]} {str(yy)[2:]}", "total": round(per[f"{yy:04d}-{mm:02d}"], 2)}
+              for yy, mm in reversed(months)]
+    mrr = 0.0
+    paying = 0
+    for t in tenants:
+        b = load_billing(t["billing"])
+        if _pay_state(b) == "paid":
+            mrr += tenant_price(b)
+            paying += 1
+    return {"total": round(total, 2), "this_month": round(this_month, 2),
+            "mrr": round(mrr, 2), "paying_tenants": paying, "months": series}
+
+
 def p_info(ctx):
     last_path, last_mtime = last_backup_info()
     with get_db() as db:
@@ -1042,8 +1132,17 @@ def p_billing_get(ctx):
     t = load_tenant(tenant_id=tid)
     if not t:
         raise HttpError(404, "Restaurante no encontrado")
-    return {"billing": get_billing(tid), "active": t["active"],
-            "grace_days": as_int(get_setting("grace_days", "3"), 3)}
+    b = get_billing(tid)
+    with get_db() as db:
+        pays = db.execute("SELECT amount, method, note, created_at FROM payments "
+                          "WHERE tenant_id = ? ORDER BY id DESC LIMIT 24", (tid,)).fetchall()
+        total = db.execute("SELECT COALESCE(SUM(amount),0) s FROM payments WHERE tenant_id = ?",
+                           (tid,)).fetchone()["s"]
+    return {"billing": b, "active": t["active"],
+            "grace_days": as_int(get_setting("grace_days", "3"), 3),
+            "price": tenant_price(b), "own_price": b.get("price_eur"),
+            "revenue_total": round(total, 2),
+            "payments": [dict(x) for x in pays]}
 
 
 def p_billing_enable(ctx):
@@ -1063,7 +1162,27 @@ def p_billing_enable(ctx):
 def p_billing_mark_paid(ctx):
     tid = as_int(ctx.params["tid"])
     days = max(1, as_int(ctx.body.get("days"), 30))
-    return {"billing": apply_payment(tid, days=days)}
+    b = get_billing(tid)
+    amount = as_float(ctx.body.get("amount"), 0) or tenant_price(b)
+    result = apply_payment(tid, days=days)
+    record_payment(tid, amount, "manual", f"Pago manual (+{days} días)")
+    return {"billing": result}
+
+
+def p_billing_price(ctx):
+    """Fija la cuota mensual propia de este restaurante (vacío = usar la global)."""
+    tid = as_int(ctx.params["tid"])
+    b = get_billing(tid)
+    raw = ctx.body.get("price_eur")
+    if raw in (None, "", 0, "0"):
+        b.pop("price_eur", None)
+    else:
+        val = as_float(raw, -1)
+        if val <= 0:
+            raise HttpError(400, "Pon una cuota válida en euros")
+        b["price_eur"] = round(val, 2)
+    save_billing(tid, b)
+    return {"billing": b, "price": tenant_price(b)}
 
 
 def p_billing_checkout(ctx):
@@ -1071,7 +1190,7 @@ def p_billing_checkout(ctx):
     t = load_tenant(tenant_id=tid)
     if not t:
         raise HttpError(404, "Restaurante no encontrado")
-    price = as_float(get_setting("price_eur", "29"), 29.0)
+    price = tenant_price(get_billing(tid))
     if price <= 0:
         raise HttpError(400, "Configura un precio mensual válido en Facturación")
     public = (get_setting("public_url", "") or "http://localhost:8000").rstrip("/")
@@ -1100,7 +1219,8 @@ def p_billing_checkout(ctx):
 #  HANDLERS — RESTAURANTE (por tenant)                                        #
 # =========================================================================== #
 def t_login(ctx):
-    if not rate_limit(f"tlogin:{ctx.tenant['id']}:{ctx.ip}", 8, 300):
+    username_key = str(ctx.body.get("username") or "")[:40].lower()
+    if not rate_limit(f"tlogin:{ctx.tenant['id']}:{ctx.ip}:{username_key}", 8, 300):
         raise HttpError(429, "Demasiados intentos. Espera unos minutos.")
     username = str(need(ctx.body, "username")).strip()
     password = need(ctx.body, "password")
@@ -1126,8 +1246,8 @@ def t_me(ctx):
 def t_password(ctx):
     cur = need(ctx.body, "current_password")
     new = need(ctx.body, "new_password")
-    if len(new) < 4:
-        raise HttpError(400, "La nueva contraseña debe tener al menos 4 caracteres")
+    if len(new) < 8:
+        raise HttpError(400, "La nueva contraseña debe tener al menos 8 caracteres")
     with get_db() as db:
         row = db.execute("SELECT password_hash FROM admin_users WHERE id = ?", (ctx.user["id"],)).fetchone()
         if not verify_password(cur, row["password_hash"]):
@@ -1308,6 +1428,8 @@ def t_public_lookup(ctx):
     cfg = ctx.tenant["config"]
     if not cfg["features"].get("self_lookup"):
         raise HttpError(403, "La consulta no está disponible")
+    if not rate_limit(f"lookup:{ctx.tenant['id']}:{ctx.ip}", 25, 300):
+        raise HttpError(429, "Demasiadas consultas. Espera unos minutos.")
     q = str(need(ctx.body, "query", "Introduce un teléfono o código")).strip()
     with get_db() as db:
         row = db.execute("SELECT * FROM customers WHERE tenant_id = ? AND active = 1 "
@@ -1647,6 +1769,7 @@ PLATFORM_ROUTES = [
     ("POST", r"/api/platform/tenants",  p_create_tenant,  True),
     ("PUT",  r"/api/platform/tenants/(?P<tid>\d+)", p_update_tenant, True),
     ("GET",  r"/api/platform/info",     p_info,           True),
+    ("GET",  r"/api/platform/revenue",  p_revenue,        True),
     ("POST", r"/api/platform/tenants/(?P<tid>\d+)/delete", p_delete_tenant, True),
     ("GET",  r"/api/platform/tenants/(?P<tid>\d+)/customers", p_tenant_customers, True),
     ("POST", r"/api/platform/tenants/(?P<tid>\d+)/customers/(?P<cid>\d+)/adjust", p_tenant_adjust, True),
@@ -1656,6 +1779,7 @@ PLATFORM_ROUTES = [
     ("GET",  r"/api/platform/tenants/(?P<tid>\d+)/billing", p_billing_get, True),
     ("POST", r"/api/platform/tenants/(?P<tid>\d+)/billing/enable",    p_billing_enable,    True),
     ("POST", r"/api/platform/tenants/(?P<tid>\d+)/billing/mark_paid", p_billing_mark_paid, True),
+    ("POST", r"/api/platform/tenants/(?P<tid>\d+)/billing/price",     p_billing_price,     True),
     ("POST", r"/api/platform/tenants/(?P<tid>\d+)/billing/checkout",  p_billing_checkout,  True),
 ]
 TENANT_ROUTES = [
@@ -1745,9 +1869,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _common_headers(self, content_type):
         self.send_header("X-Content-Type-Options", "nosniff")
+        if self._is_https():
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
         if content_type.startswith("text/html"):
             self.send_header("X-Frame-Options", "SAMEORIGIN")
             self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+            self.send_header("Content-Security-Policy",
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+                "connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'")
 
     # ---- respuestas ---- #
     def _send_json(self, status, obj, ctx=None):
@@ -1823,10 +1954,14 @@ class Handler(BaseHTTPRequestHandler):
                     return v
         return None
 
+    MAX_BODY = 3 * 1024 * 1024   # 3 MB: suficiente para logos, imposible para ataques de memoria
+
     def _read_body(self):
         length = as_int(self.headers.get("Content-Length"), 0)
         if length <= 0:
             return {}
+        if length > self.MAX_BODY:
+            raise HttpError(413, "Petición demasiado grande")
         raw = self.rfile.read(length)
         if not raw:
             return {}
@@ -1862,7 +1997,8 @@ class Handler(BaseHTTPRequestHandler):
             except HttpError as e:
                 self._send_json(e.status, {"detail": e.detail})
             except Exception as e:
-                self._send_json(500, {"detail": f"Error interno: {e}"})
+                print(f"  [error] {method} {path}: {e}")
+                self._send_json(500, {"detail": "Error interno"})
             return True
         return False
 

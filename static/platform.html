@@ -48,7 +48,14 @@
   .page-head{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px}
   .page-head h1{font-size:26px;font-weight:800}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-  .tcard{padding:18px;border-width:2px}
+  body{background:radial-gradient(1000px 400px at 85% -5%, #3a1f3533 0%, transparent 60%), var(--bg)}
+  .logo{flex:none;filter:drop-shadow(0 3px 10px rgba(0,0,0,.45))}
+  .stat{position:relative;overflow:hidden}
+  .stat .v{font-family:'Bricolage Grotesque';font-weight:800}
+  .stat.money .v{color:var(--gold)}
+  .stat .k{letter-spacing:.06em;text-transform:uppercase;font-size:10.5px}
+  .tcard{padding:18px;border-width:2px;transition:transform .15s ease, box-shadow .15s ease}
+  .tcard:hover{transform:translateY(-3px)}
   .tcard.pay-paid{border-color:var(--ok);box-shadow:0 0 0 1px #3fae7226, var(--shadow)}
   .tcard.pay-unpaid{border-color:var(--bad);box-shadow:0 0 0 1px #e05a4826, var(--shadow)}
   .tcard.pay-none{border-color:var(--line)}
@@ -81,7 +88,14 @@
 
 <div id="login">
   <div class="card">
-    <div class="brand"><div class="brand-mark">F</div><div class="brand-name">Fidelia</div></div>
+    <div class="brand"><svg class="logo" viewBox="0 0 48 48" width="44" height="44" aria-hidden="true">
+  <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#a85585"/><stop offset="1" stop-color="#5a2547"/></linearGradient></defs>
+  <rect x="2" y="2" width="44" height="44" rx="13" fill="url(#lg)"/>
+  <rect x="2" y="2" width="44" height="44" rx="13" fill="none" stroke="#e8b13c" stroke-opacity=".55" stroke-width="1.4"/>
+  <path d="M17 34 V14 h14 v4.6 h-8.6 v4.4 h7.4 v4.6 h-7.4 V34 Z" fill="#fff"/>
+  <circle cx="34.5" cy="15" r="3.1" fill="#e8b13c"/>
+</svg><div class="brand-name">Fidelia</div></div>
     <p class="sub" style="margin-bottom:22px">Plataforma · Panel del propietario</p>
     <div class="field"><label>Usuario</label><input id="lg-user" autocomplete="username"></div>
     <div class="field"><label>Contraseña</label><input id="lg-pass" type="password" autocomplete="current-password"></div>
@@ -93,18 +107,32 @@
 <div id="app" class="hide">
   <div class="wrap">
     <div class="page-head">
-      <div class="brand"><div class="brand-mark">F</div>
+      <div class="brand"><svg class="logo" viewBox="0 0 48 48" width="44" height="44" aria-hidden="true">
+  <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#a85585"/><stop offset="1" stop-color="#5a2547"/></linearGradient></defs>
+  <rect x="2" y="2" width="44" height="44" rx="13" fill="url(#lg)"/>
+  <rect x="2" y="2" width="44" height="44" rx="13" fill="none" stroke="#e8b13c" stroke-opacity=".55" stroke-width="1.4"/>
+  <path d="M17 34 V14 h14 v4.6 h-8.6 v4.4 h7.4 v4.6 h-7.4 V34 Z" fill="#fff"/>
+  <circle cx="34.5" cy="15" r="3.1" fill="#e8b13c"/>
+</svg>
         <div><div class="brand-name">Fidelia <span class="owner-badge" style="vertical-align:3px;margin-left:6px">Panel del propietario</span></div>
         <div class="sub">Gestiona los restaurantes de tus clientes</div></div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" onclick="createForm()">＋ Nuevo restaurante</button>
-        <button class="btn btn-ghost" onclick="billingSettings()">Facturación</button>
-        <button class="btn btn-ghost" onclick="showInfo()">Datos y copias</button>
-        <button class="btn btn-ghost" onclick="pwForm()">Contraseña</button>
-        <button class="btn btn-ghost" onclick="doLogout()">Salir</button>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:7px" class="util-group">
+          <button class="btn btn-ghost btn-sm" onclick="billingSettings()" title="Facturación y Stripe">💳 Facturación</button>
+          <button class="btn btn-ghost btn-sm" onclick="showInfo()" title="Copias de seguridad">💾 Datos</button>
+          <button class="btn btn-ghost btn-sm" onclick="pwForm()" title="Cambiar contraseña">🔑</button>
+          <button class="btn btn-ghost btn-sm" onclick="doLogout()" title="Cerrar sesión">⏻</button>
+        </div>
+        <button class="btn btn-primary" style="padding:11px 20px;font-size:14.5px" onclick="createForm()">＋ Nuevo restaurante</button>
       </div>
     </div>
     <div class="stat-grid" id="pstats"></div>
+    <div id="revchart"></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin:22px 0 12px">
+      <h2 style="font-family:'Bricolage Grotesque';font-size:19px;margin:0">Tus restaurantes <span id="tcount" class="sub"></span></h2>
+      <span class="sub" id="refresh-note">Se actualiza solo cada minuto</span>
+    </div>
     <div class="grid" id="tenants"><div class="empty">Cargando…</div></div>
   </div>
 </div>

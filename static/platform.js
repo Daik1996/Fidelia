@@ -39,14 +39,36 @@ async function boot(){
 }
 (async()=>{ try{ await api('/api/platform/me'); boot(); }catch{ showLogin(); } })();
 
+function fmtEUR(n){ return (Math.round((n||0)*100)/100).toLocaleString('es-ES',{minimumFractionDigits:0,maximumFractionDigits:2}); }
 async function loadAll(){
-  const [info,{tenants}] = await Promise.all([api('/api/platform/info'), api('/api/platform/tenants')]);
-  TENANTS = tenants; window._INFO = info;
+  const [info,{tenants},rev] = await Promise.all([
+    api('/api/platform/info'), api('/api/platform/tenants'), api('/api/platform/revenue')]);
+  TENANTS = tenants; window._INFO = info; window._REV = rev;
+  const unpaid = tenants.filter(t=>t.pay_state==='unpaid').length;
   $('#pstats').innerHTML = `
-    <div class="card stat"><div class="k">Restaurantes</div><div class="v">${info.tenants}</div></div>
-    <div class="card stat"><div class="k">Clientes totales</div><div class="v">${info.customers}</div></div>
-    <div class="card stat"><div class="k">Última copia</div><div class="v" style="font-size:15px">${info.last_backup?fdate(info.last_backup):'—'}</div></div>`;
+    <div class="card stat money"><div class="k">💰 Ingresado total</div><div class="v">${fmtEUR(rev.total)} €</div></div>
+    <div class="card stat money"><div class="k">📅 Este mes</div><div class="v">${fmtEUR(rev.this_month)} €</div></div>
+    <div class="card stat money"><div class="k">🔁 Recurrente (al mes)</div><div class="v">${fmtEUR(rev.mrr)} €</div>
+      <div class="sub">${rev.paying_tenants} pagando</div></div>
+    <div class="card stat"><div class="k">Restaurantes</div><div class="v">${info.tenants}</div>
+      ${unpaid?`<div class="sub" style="color:var(--bad);font-weight:700">${unpaid} sin pagar</div>`:'<div class="sub" style="color:var(--ok)">todo al día</div>'}</div>
+    <div class="card stat"><div class="k">Clientes totales</div><div class="v">${info.customers}</div></div>`;
+  drawRevChart(rev.months);
+  $('#tcount').textContent = `(${tenants.length})`;
   renderTenants();
+}
+function drawRevChart(months){
+  if(!months || !months.some(m=>m.total>0)){ $('#revchart').innerHTML=''; return; }
+  const max = Math.max(...months.map(m=>m.total), 1);
+  $('#revchart').innerHTML = `<div class="card" style="padding:16px 18px;margin-top:14px">
+    <div class="sub" style="margin-bottom:10px;letter-spacing:.06em;text-transform:uppercase;font-size:10.5px">Ingresos · últimos 6 meses</div>
+    <div style="display:flex;gap:10px;align-items:flex-end;height:92px">
+      ${months.map(m=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0">
+        <div class="sub" style="font-size:11px;color:var(--gold);font-weight:700">${m.total?fmtEUR(m.total)+'€':''}</div>
+        <div style="width:100%;max-width:46px;height:${Math.max(3, m.total/max*58)}px;border-radius:6px 6px 2px 2px;
+          background:linear-gradient(180deg, var(--gold), #8a6a1e)"></div>
+        <div class="sub" style="font-size:10.5px;white-space:nowrap">${m.label}</div></div>`).join('')}
+    </div></div>`;
 }
 function renderTenants(){
   const box=$('#tenants');
@@ -60,6 +82,8 @@ function renderTenants(){
             <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</span></div>
           <div class="sub" style="margin-top:3px">/r/${t.slug}${t.setup_done?'':' · <strong style="color:var(--gold)">sin configurar</strong>'}${t.active?'':' · <strong style="color:var(--bad)">suspendido</strong>'}</div>
           <div style="margin-top:8px">${payChip(t)}</div>
+          <div class="sub" style="margin-top:6px"><span style="color:var(--ink);font-weight:700">${fmtEUR(t.price)} €/mes</span>
+            · me ha dado <span style="color:var(--gold);font-weight:700">${fmtEUR(t.revenue_total)} €</span></div>
         </div>
         <div class="bignum" style="text-align:right">${t.customers}<small>clientes</small></div>
       </div>
@@ -351,7 +375,30 @@ async function billingForm(id){
       <span class="sub">Pago manual (transferencia, efectivo…)</span>
     </div>
     <button class="btn btn-primary" style="width:100%" onclick="genCheckout(${id})">💳 Generar enlace de suscripción (Stripe)</button>
-    <div id="bf-link" style="margin-top:12px"></div>`);
+    <div id="bf-link" style="margin-top:12px"></div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:16px 0 4px">
+      <div class="field" style="margin:0;max-width:150px"><label>Cuota de ESTE restaurante (€/mes)</label>
+        <input id="bf-price" type="number" step="0.01" value="${d.own_price??''}" placeholder="${fmtEUR(d.price)} (global)"></div>
+      <button class="btn btn-ghost" onclick="savePrice(${id})">Guardar cuota</button>
+      <span class="sub">Déjalo vacío para usar la cuota global.</span>
+    </div>
+    <div class="card" style="padding:14px;background:rgba(255,255,255,.045);margin-top:12px">
+      <strong style="font-size:13.5px">Historial de pagos · total <span style="color:var(--gold)">${fmtEUR(d.revenue_total)} €</span></strong>
+      ${d.payments && d.payments.length ? `<table style="width:100%;margin-top:8px;font-size:13px;border-collapse:collapse">
+        ${d.payments.map(pp=>`<tr style="border-top:1px solid var(--line)">
+          <td style="padding:6px 0">${fdate(pp.created_at)}</td>
+          <td>${pp.method==='stripe'?'💳 Stripe':'✋ Manual'}</td>
+          <td class="sub">${esc(pp.note||'')}</td>
+          <td style="text-align:right;font-weight:700;color:var(--gold)">+${fmtEUR(pp.amount)} €</td></tr>`).join('')}
+      </table>` : '<div class="sub" style="margin-top:6px">Aún no hay pagos registrados.</div>'}
+    </div>`);
+}
+async function savePrice(id){
+  try{
+    const v=$('#bf-price').value.trim();
+    await api(`/api/platform/tenants/${id}/billing/price`,{method:'POST',body:{price_eur:v||null}});
+    toast('Cuota guardada','ok'); billingForm(id); loadAll();
+  }catch(e){ toast(e.message,'bad'); }
 }
 async function billingEnable(id,enabled){
   try{ await api(`/api/platform/tenants/${id}/billing/enable`,{method:'POST',body:{enabled}});
@@ -459,3 +506,11 @@ async function tcBan(cid,ban){
     toast(ban?'Bloqueado':'Desbloqueado','ok'); loadTC();
   }catch(e){ toast(e.message,'bad'); }
 }
+
+
+/* ================= AUTO-REFRESCO DEL PANEL ================= */
+function _canRefresh(){
+  return $('#app') && !$('#app').classList.contains('hide') && !$('#modal-root').innerHTML;
+}
+setInterval(()=>{ if(_canRefresh()) loadAll().catch(()=>{}); }, 60000);
+window.addEventListener('focus', ()=>{ if(_canRefresh()) loadAll().catch(()=>{}); });

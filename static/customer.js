@@ -125,7 +125,9 @@ function showCustomer(data){
 
 /* ---------- PWA: service worker + instalación ---------- */
 if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=> navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('/sw.js')
+    .then(reg=>{ reg.update(); })
+    .catch(()=>{}));
 }
 let deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', e=>{

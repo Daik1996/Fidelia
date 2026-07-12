@@ -14,7 +14,10 @@ const TBASE = location.pathname.replace(/\/admin\/?$/, '');
   l.href = TBASE + '/manifest-admin.webmanifest'; document.head.appendChild(l); })();
 
 if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=> navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('/sw.js')
+    .then(reg=>{ reg.update();               // buscar SW nuevo cada carga
+      if(reg.waiting) reg.waiting.postMessage('skip'); })
+    .catch(()=>{}));
 }
 
 /* ---------- API helper ---------- */

@@ -84,7 +84,6 @@ function renderTenants(){
           <div style="margin-top:8px">${payChip(t)}</div>
           <div class="sub" style="margin-top:6px"><span style="color:var(--ink);font-weight:700">${fmtEUR(t.price)} €/mes</span>
             · me ha dado <span style="color:var(--gold);font-weight:700">${fmtEUR(t.revenue_total)} €</span></div>
-        ${t.notes?`<div class="sub" style="margin-top:5px;color:var(--ink);opacity:.85">📝 ${esc(t.notes)}</div>`:''}
         ${t.location?`<div class="sub" style="margin-top:3px"><a href="https://maps.google.com/?q=${encodeURIComponent(t.location)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--plum-700);text-decoration:none" title="Ver en el mapa">📍 ${esc(t.location)} ↗</a></div>`:''}
           ${t.notes?`<div class="sub" style="margin-top:7px;color:var(--ink);background:rgba(255,255,255,.06);
             border:1px solid var(--line);border-radius:8px;padding:6px 10px;white-space:pre-wrap;word-break:break-word">📝 ${esc(t.notes)}</div>`:''}
@@ -135,7 +134,7 @@ function notesForm(tid){
 async function saveNotes(tid){
   try{
     await api(`/api/platform/tenants/${tid}`,{method:'PUT',
-      body:JSON.stringify({notes:$('#nf-notes').value.trim(), location:$('#nf-loc').value.trim()})});
+      body:{notes:$('#nf-notes').value.trim(), location:$('#nf-loc').value.trim()}});
     closeModal(); toast('Notas guardadas'); loadTenants();
   }catch(e){ toast(e.message,true); }
 }

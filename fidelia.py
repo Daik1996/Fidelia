@@ -1647,6 +1647,30 @@ def t_public_nickname(ctx):
     return {"ok": True, "nickname": clean}
 
 
+def t_public_nickname_check(ctx):
+    """Comprueba si un apodo está libre, sin guardarlo. Para avisar mientras el cliente escribe."""
+    cfg = ctx.tenant["config"]
+    if not cfg["features"].get("self_lookup"):
+        raise HttpError(403, "La consulta no está disponible")
+    q = str(ctx.query.get("q") or "").strip()
+    nickname = str(ctx.query.get("nickname") or "").strip()
+    if not nickname:
+        return {"available": False, "reason": "vacío"}
+    if not NICK_RE.match(nickname):
+        return {"available": False, "reason": "formato"}
+    with get_db() as db:
+        me = db.execute("SELECT id FROM customers WHERE tenant_id = ? AND active = 1 "
+                        "AND (phone = ? OR code = ?)",
+                        (ctx.tenant["id"], norm_phone(q) or q, q.upper())).fetchone()
+        sql = "SELECT id FROM customers WHERE tenant_id = ? AND LOWER(nickname) = LOWER(?)"
+        args = [ctx.tenant["id"], nickname]
+        if me:
+            sql += " AND id != ?"
+            args.append(me["id"])
+        taken = db.execute(sql, args).fetchone()
+    return {"available": not taken}
+
+
 def _tenant_customer(db, tenant_id, cid):
     row = db.execute("SELECT * FROM customers WHERE id = ? AND tenant_id = ?", (cid, tenant_id)).fetchone()
     if not row:
@@ -1984,6 +2008,7 @@ TENANT_ROUTES = [
     ("GET",    r"/api/ranking",        t_ranking_data,   True),
     ("POST",   r"/api/public/lookup",  t_public_lookup,  False),
     ("POST",   r"/api/public/nickname", t_public_nickname, False),
+    ("GET",    r"/api/public/nickname/check", t_public_nickname_check, False),
     ("GET",    r"/api/customers/find", t_find_customer, True),
     ("GET",    r"/api/customers",   t_list_customers,  True),
     ("POST",   r"/api/customers",   t_create_customer, True),

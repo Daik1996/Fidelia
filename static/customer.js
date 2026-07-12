@@ -111,10 +111,14 @@ function showCustomer(data){
   }
   $('#m-rewards').innerHTML = data.rewards.length ? data.rewards.map(r=>`
     <div class="reward ${r.affordable?'afford':'locked'}">
-      ${r.affordable?'<span class="ready-badge">✨ ¡Ya es tuyo!</span>':''}
-      <div><strong>${esc(r.name)}</strong>
-        <div class="muted">${esc(r.desc||'')}${r.min_level?` · nivel ${r.min_level}+`:''}</div></div>
-      <span class="cost">${r.cost_xp} XP</span>
+      ${r.affordable?'<div class="ready-badge">✨ ¡Ya es tuyo!</div>':''}
+      <div class="reward-row">
+        <div class="reward-info">
+          <strong>${esc(r.name)}</strong>
+          <div class="muted">${esc(r.desc||'')}${r.min_level?` · nivel ${r.min_level}+`:''}</div>
+        </div>
+        <span class="cost">${r.cost_xp} XP</span>
+      </div>
     </div>`).join('') : '<p class="muted">Aún no hay recompensas disponibles.</p>';
   window.scrollTo({top:0,behavior:'smooth'});
 }
@@ -147,21 +151,42 @@ function renderNickBox(nick){
     box.id = 'nick-box'; box.className = 'card'; box.style.marginTop = '14px';
     $('#mine').appendChild(box);
   }
+  _nickOrig = nick || '';
   box.innerHTML = `
     <h3 style="margin:0 0 4px">Tu apodo en el ranking</h3>
     <div class="muted" style="font-size:12.5px;margin-bottom:10px">Por privacidad, en el ranking puede aparecer un apodo que elijas tú en lugar de tu nombre. Único en este local.</div>
     <div style="display:flex;gap:8px">
       <input id="nick-in" maxlength="20" placeholder="Ej. ElDelFondo" value="${esc(nick||'')}"
-        style="flex:1" onkeydown="if(event.key==='Enter')saveNick()">
-      <button class="btn" onclick="saveNick()" style="white-space:nowrap">Guardar</button>
+        autocomplete="off" autocapitalize="off" spellcheck="false"
+        style="flex:1;min-width:0;background:#ffffff;color:#231c21;-webkit-text-fill-color:#231c21;
+          border:1.5px solid #c9bcc4;border-radius:11px;padding:13px 15px;font-size:16px;caret-color:#231c21"
+        oninput="checkNick()" onkeydown="if(event.key==='Enter')saveNick()">
+      <button class="btn" id="nick-save" onclick="saveNick()" style="white-space:nowrap;width:auto;padding:13px 18px">Guardar</button>
     </div>
-    <div id="nick-msg" class="muted" style="font-size:12px;margin-top:8px">${nick?('Ahora mismo apareces como «'+esc(nick)+'».'):''}</div>`;
+    <div id="nick-msg" style="font-size:12.5px;margin-top:8px;min-height:16px;color:var(--muted)">${nick?('Ahora mismo apareces como «'+esc(nick)+'».'):''}</div>`;
+}
+let _nickTimer=null, _nickOrig='';
+function checkNick(){
+  const v=$('#nick-in').value.trim(), msg=$('#nick-msg');
+  clearTimeout(_nickTimer);
+  if(!v){ msg.textContent='Escribe un apodo (2–20 caracteres).'; msg.style.color='var(--muted)'; return; }
+  if(v.length<2){ msg.textContent='Un poco más largo (mínimo 2 caracteres).'; msg.style.color='var(--muted)'; return; }
+  if(v===_nickOrig){ msg.textContent='Es tu apodo actual.'; msg.style.color='var(--muted)'; return; }
+  msg.textContent='Comprobando disponibilidad…'; msg.style.color='var(--muted)';
+  _nickTimer=setTimeout(async()=>{
+    try{
+      const r=await api('/api/public/nickname/check?q='+encodeURIComponent(window._MYQ)+'&nickname='+encodeURIComponent(v));
+      if(r.available){ msg.textContent='✓ «'+v+'» está disponible.'; msg.style.color='var(--ok,#2f8f5b)'; }
+      else{ msg.textContent='✗ «'+v+'» ya lo usa otra persona. Prueba otro.'; msg.style.color='var(--bad,#c0392b)'; }
+    }catch(e){ msg.textContent=''; }
+  }, 400);
 }
 async function saveNick(){
   const msg=$('#nick-msg'), v=$('#nick-in').value.trim();
   if(!v){ msg.textContent='Escribe un apodo (2–20 caracteres).'; msg.style.color='var(--bad,#c0392b)'; return; }
   try{
     const r = await api('/api/public/nickname',{method:'POST',body:{query:window._MYQ, nickname:v}});
+    _nickOrig = r.nickname;
     msg.textContent = '✓ Guardado: en el ranking apareces como «'+esc(r.nickname)+'».';
     msg.style.color = 'var(--ok,#2f8f5b)';
     loadRanking();

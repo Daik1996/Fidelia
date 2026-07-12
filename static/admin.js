@@ -119,13 +119,12 @@ async function finishSetup(){
     closeModal(); toast('¡Listo! Bienvenido a Fidelia','ok'); setView('dashboard');
   }catch(e){ $('#sw-err').textContent = e.message; }
 }
-(async ()=>{ try{ await api('/api/auth/me'); await boot(); }catch{ showLogin(); } })();
-
 let PENDING_CODE = null;
 try{
   const _qp = new URLSearchParams(location.search);
   if(_qp.get('code')){ PENDING_CODE = _qp.get('code'); history.replaceState(null,'',location.pathname); }
 }catch{}
+(async ()=>{ try{ await api('/api/auth/me'); await boot(); }catch{ showLogin(); } })();
 
 function setView(v){
   VIEW = v;

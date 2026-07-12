@@ -1931,7 +1931,7 @@ def t_stats(ctx):
         new30 = db.execute("SELECT COUNT(*) c FROM customers WHERE tenant_id=? AND created_at >= ?", (tid, since)).fetchone()["c"]
         top = db.execute("SELECT name, COALESCE(xp_total, xp) AS xp FROM customers WHERE tenant_id=? AND active=1 "
                          "ORDER BY COALESCE(xp_total, xp) DESC LIMIT 5", (tid,)).fetchall()
-        rows = db.execute("SELECT xp FROM customers WHERE tenant_id=? AND active=1", (tid,)).fetchall()
+        rows = db.execute("SELECT xp, COALESCE(xp_total, xp) AS xp_total FROM customers WHERE tenant_id=? AND active=1", (tid,)).fetchall()
     dist = {lv["name"]: 0 for lv in cfg["levels"]}
     for r in rows:
         lv, _ = level_for_xp((r["xp_total"] if r["xp_total"] is not None else r["xp"]), cfg["levels"])

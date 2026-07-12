@@ -61,6 +61,22 @@
   .err{color:#c0392b;font-size:14px;margin-top:10px;text-align:center}
   .hide{display:none!important}
   .foot{text-align:center;color:var(--muted);font-size:12px;margin-top:30px}
+
+  /* Recompensa disponible: brillo dorado pulsante + barrido de luz. Gratificante y visible. */
+  .reward.afford{position:relative;overflow:hidden;border:1.6px solid var(--accent,#e0a021);
+    animation:rw-pulse 1.9s ease-in-out infinite;background:linear-gradient(135deg,rgba(224,160,33,.10),rgba(224,160,33,.02))}
+  .reward.afford::after{content:'';position:absolute;top:0;left:-70%;width:45%;height:100%;
+    background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);
+    transform:skewX(-18deg);animation:rw-shine 2.6s ease-in-out infinite}
+  .reward.afford .cost{background:var(--accent,#e0a021);color:#3a2600;font-weight:800}
+  .ready-badge{position:absolute;top:-9px;right:10px;background:var(--accent,#e0a021);color:#3a2600;
+    font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:20px;letter-spacing:.2px;
+    box-shadow:0 2px 8px rgba(224,160,33,.45);animation:rw-bounce 1.9s ease-in-out infinite}
+  @keyframes rw-pulse{0%,100%{box-shadow:0 0 0 0 rgba(224,160,33,.38)}50%{box-shadow:0 0 0 7px rgba(224,160,33,0)}}
+  @keyframes rw-shine{0%{left:-70%}55%,100%{left:130%}}
+  @keyframes rw-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+  @media (prefers-reduced-motion: reduce){.reward.afford,.reward.afford::after,.ready-badge{animation:none}}
+
 </style>
 </head>
 <body>

@@ -58,7 +58,11 @@ async function doLogin(){
   }catch(e){ $('#lg-err').textContent = e.message; }
 }
 async function doLogout(){ await api('/api/auth/logout',{method:'POST'}); location.reload(); }
-function showLogin(){ $('#app').classList.add('hide'); $('#login').classList.remove('hide'); }
+function showLogin(){
+  setTimeout(()=>{ if(PENDING_CODE){ const f=document.querySelector('#login-card .sub, #login .sub');
+    const n=document.createElement('div'); n.style.cssText='margin:10px 0;padding:10px 12px;border-radius:10px;background:#fdf6e8;border:1px solid #ecd9ab;color:#8a6414;font-size:13px;font-weight:600';
+    n.textContent='📇 Carné de cliente escaneado ('+PENDING_CODE+'): entra y se cargará solo en Cobro rápido.';
+    (f?f.parentElement:document.body).insertBefore(n,(f?f.nextSibling:null)); } },50); $('#app').classList.add('hide'); $('#login').classList.remove('hide'); }
 
 $('#lg-pass')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 
@@ -116,6 +120,12 @@ async function finishSetup(){
   }catch(e){ $('#sw-err').textContent = e.message; }
 }
 (async ()=>{ try{ await api('/api/auth/me'); await boot(); }catch{ showLogin(); } })();
+
+let PENDING_CODE = null;
+try{
+  const _qp = new URLSearchParams(location.search);
+  if(_qp.get('code')){ PENDING_CODE = _qp.get('code'); history.replaceState(null,'',location.pathname); }
+}catch{}
 
 function setView(v){
   VIEW = v;
@@ -199,6 +209,7 @@ async function renderDashboard(){
         </tbody></table>
       </div>
     </div>`;
+  applyPendingCode();
 }
 const stat=(k,v)=>`<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
 
@@ -406,7 +417,7 @@ function pickReg(c){
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
         <div><strong style="font-size:16px">${esc(c.name)}</strong>
           <div class="sub">${c.level?esc(c.level.name):''} · ${c.xp} XP</div></div>
-        <span class="pill">Regla: ${e.xp_per_currency} XP/${CUR} + ${e.xp_per_visit} XP/visita</span>
+        <span class="pill">Regla: ${e.xp_per_currency} punto${e.xp_per_currency==1?'':'s'} por ${CUR} · la visita solo cuenta la estadística</span>
       </div>
       <div class="form-grid" style="margin-top:14px">
         <div class="field"><label>Importe del ticket (${CUR})</label>
@@ -414,7 +425,7 @@ function pickReg(c){
         <div class="field"><label>Nota (opcional)</label><input id="reg-note" placeholder="Mesa 4, menú del día…"></div>
       </div>
       <label style="display:flex;align-items:center;gap:8px;font-weight:500;color:var(--ink)">
-        <input type="checkbox" id="reg-visit" checked style="width:auto" onchange="previewXp()"> Contar como visita</label>
+        <input type="checkbox" id="reg-visit" checked style="width:auto" onchange="previewXp()"> Contar visita (solo estadística, no da puntos)</label>
       <div id="reg-preview" class="pill" style="margin:14px 0">Sumará 0 XP</div><br>
       <button class="btn btn-gold" onclick="submitEarn()">Registrar y sumar XP</button>
     </div>`;
@@ -423,7 +434,7 @@ function pickReg(c){
 function previewXp(){
   const e=CONFIG.earning;
   const amt=parseFloat($('#reg-amount')?.value||'0')||0;
-  let xp=amt*e.xp_per_currency + ($('#reg-visit')?.checked?e.xp_per_visit:0);
+  let xp=amt*e.xp_per_currency;
   xp=e.round_mode==='floor'?Math.floor(xp):Math.round(xp);
   const el=$('#reg-preview'); if(el) el.textContent='Sumará '+xp+' XP';
 }
@@ -567,14 +578,14 @@ function progEarning(){
       <div class="hint">Regla simple: puntos por lo que gastan + un extra por venir. Cámbialo cuando quieras.</div>
       <div class="form-grid">
         <div class="field"><label>Puntos por cada 1 ${CUR} gastado</label><input type="number" step="0.1" value="${e.xp_per_currency}" ${bind('earning.xp_per_currency')}></div>
-        <div class="field"><label>Puntos extra por cada visita</label><input type="number" value="${e.xp_per_visit}" ${bind('earning.xp_per_visit')}></div>
+
         <div class="field"><label>Regalo de bienvenida (al darse de alta)</label><input type="number" value="${e.signup_bonus}" ${bind('earning.signup_bonus')}></div>
         <div class="field"><label>Regalo de cumpleaños</label><input type="number" value="${e.birthday_bonus}" ${bind('earning.birthday_bonus')}></div>
         <div class="field"><label>Redondeo</label><select ${bind('earning.round_mode')}>
           <option value="floor" ${e.round_mode==='floor'?'selected':''}>Hacia abajo (recomendado)</option>
           <option value="round" ${e.round_mode==='round'?'selected':''}>Al más cercano</option></select></div>
       </div>
-      <div class="pill">Ejemplo real: una cuenta de 25 ${CUR} contando la visita = <strong>${e.round_mode==='floor'?Math.floor(25*e.xp_per_currency+ +e.xp_per_visit):Math.round(25*e.xp_per_currency+ +e.xp_per_visit)} puntos</strong></div>
+      <div class="pill">Ejemplo real: una cuenta de 25 ${CUR} = <strong>${e.round_mode==='floor'?Math.floor(25*e.xp_per_currency):Math.round(25*e.xp_per_currency)} puntos</strong>. La casilla "visita" solo suma al contador de visitas, no da puntos.</div>
     </div>
     <div class="card section-card">
       <h3>Opciones para tus clientes</h3><div class="hint">Qué pueden ver y hacer desde el QR de mesa.</div>
@@ -659,13 +670,13 @@ async function applyTemplate(what){
 async function renderRanking(){
   const m=$('#main');
   m.innerHTML=`<div class="page-head"><div><h1>Ranking</h1>
-    <div class="sub">Igual que lo ven tus clientes</div></div>
+    <div class="sub">${CONFIG.features.public_ranking?'Público: tus clientes lo ven en su página':'🔒 Privado: solo lo veis tú y el propietario. Actívalo en Programa.'}</div></div>
     <a class="btn btn-ghost" href="${TBASE}/" target="_blank">Abrir vista pública ↗</a></div>
     <div class="card section-card" id="rk"><div class="empty">Cargando…</div></div>`;
   try{
-    window._RK = await api('/api/public/ranking');
+    window._RK = await api('/api/ranking');
     drawAdminRanking(['month','year','alltime'].includes(window._RK.period)?window._RK.period:'month');
-  }catch(e){ $('#rk').innerHTML=`<div class="empty">El ranking está desactivado. Actívalo en Programa → Puntos.</div>`; }
+  }catch(e){ $('#rk').innerHTML=`<div class="empty">No se pudo cargar el ranking: ${esc(e.message)}</div>`; }
 }
 function drawAdminRanking(which){
   const R=window._RK, list={month:R.month,year:R.year,alltime:R.alltime}[which]||R.month;
@@ -795,6 +806,23 @@ async function changePw(){
 
 /* ---------- utils ---------- */
 function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function applyPendingCode(){
+  if(!PENDING_CODE) return;
+  const q=$('#qk-q'); if(!q) return;
+  q.value = PENDING_CODE; PENDING_CODE = null;
+  quickFind(q.value);
+  $('#qk-amt')?.focus();
+}
+async function quickFind(code){
+  const out=$('#qk-out'); if(!out) return;
+  try{
+    const c = await api('/api/customers/find?q='+encodeURIComponent(code));
+    out.innerHTML = `<div style="padding:10px 14px;border-radius:10px;background:#eef7f1;border:1px solid #cfe8d8;color:#1f5d3c;font-weight:600">
+      📱 Cliente del QR: <strong>${esc(c.name)}</strong> · ${c.xp} pts · nivel ${esc(c.level?c.level.name:'')}
+      — escribe el importe y pulsa «Sumar puntos», o <a href="#" onclick="event.preventDefault();customerDetail(${c.id})">abre su ficha</a>.</div>`;
+  }catch(e){ out.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
 async function quickCharge(){
   const q=$('#qk-q').value.trim(), amt=parseFloat($('#qk-amt').value)||0;
   const out=$('#qk-out');

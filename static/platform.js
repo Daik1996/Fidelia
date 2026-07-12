@@ -84,8 +84,22 @@ function renderTenants(){
           <div style="margin-top:8px">${payChip(t)}</div>
           <div class="sub" style="margin-top:6px"><span style="color:var(--ink);font-weight:700">${fmtEUR(t.price)} €/mes</span>
             · me ha dado <span style="color:var(--gold);font-weight:700">${fmtEUR(t.revenue_total)} €</span></div>
+        ${t.notes?`<div class="sub" style="margin-top:5px;color:var(--ink);opacity:.85">📝 ${esc(t.notes)}</div>`:''}
+        ${t.location?`<div class="sub" style="margin-top:3px"><a href="https://maps.google.com/?q=${encodeURIComponent(t.location)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--plum-700);text-decoration:none" title="Ver en el mapa">📍 ${esc(t.location)} ↗</a></div>`:''}
+          ${t.notes?`<div class="sub" style="margin-top:7px;color:var(--ink);background:rgba(255,255,255,.06);
+            border:1px solid var(--line);border-radius:8px;padding:6px 10px;white-space:pre-wrap;word-break:break-word">📝 ${esc(t.notes)}</div>`:''}
         </div>
-        <div class="bignum" style="text-align:right">${t.customers}<small>clientes</small></div>
+        <div style="text-align:right;flex:none">
+          <div class="bignum">${t.customers}<small>clientes</small></div>
+          <div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end">
+            ${t.location?`<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(t.location)}"
+              target="_blank" rel="noopener" title="Ver en el mapa: ${esc(t.location)}"
+              style="width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--line);border-radius:9px;
+              background:rgba(255,255,255,.05);text-decoration:none;font-size:16px">📍</a>`:''}
+            <button class="btn btn-ghost btn-sm" style="width:32px;height:32px;padding:0;font-size:14px"
+              title="Notas y ubicación" onclick="notesForm(${t.id})">📝</button>
+          </div>
+        </div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:14px">
         <button class="btn btn-primary btn-sm" style="flex:1" onclick="handoff(${t.id})">Entregar</button>
@@ -99,6 +113,31 @@ function payChip(t){
   if(t.pay_state==='paid') return `<span style="color:var(--ok);font-weight:700;font-size:13px">● Pagado${t.billing.paid_until?' hasta '+fdate(t.billing.paid_until):''}</span>`;
   if(t.pay_state==='unpaid') return `<span style="color:var(--bad);font-weight:700;font-size:13px">● Sin pagar${t.billing.paid_until?' (venció '+fdate(t.billing.paid_until)+')':''}</span>`;
   return `<span style="color:var(--muted);font-weight:600;font-size:13px">○ Sin cobro configurado</span>`;
+}
+
+/* ---------- Notas y ubicación del restaurante (solo para mí) ---------- */
+function notesForm(tid){
+  const t = TENANTS.find(x=>x.id===tid); if(!t) return;
+  modal(`<div class="modal-head"><div><h2>Notas de ${esc(t.name)}</h2>
+      <div class="sub">Privadas: solo las ves tú en este panel.</div></div>
+    <span class="close" onclick="closeModal()">×</span></div>
+    <div class="field"><label>Notas (teléfono, contacto, recordatorios…)</label>
+      <textarea id="nf-notes" rows="4" style="width:100%;padding:9px 11px;border:1px solid var(--line);
+        border-radius:9px;background:#332536;color:var(--ink);font-family:inherit;font-size:14px;resize:vertical"
+        placeholder="Ej. Dueño: Manolo · 612 345 678&#10;Cerrado los lunes">${esc(t.notes||'')}</textarea></div>
+    <div class="field"><label>Ubicación (dirección para el mapa 📍)</label>
+      <input id="nf-loc" value="${esc(t.location||'')}" placeholder="Ej. Calle Mayor 12, Alcorcón, Madrid"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-primary" style="flex:1" onclick="saveNotes(${tid})">Guardar</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+    </div>`);
+}
+async function saveNotes(tid){
+  try{
+    await api(`/api/platform/tenants/${tid}`,{method:'PUT',
+      body:JSON.stringify({notes:$('#nf-notes').value.trim(), location:$('#nf-loc').value.trim()})});
+    closeModal(); toast('Notas guardadas'); loadTenants();
+  }catch(e){ toast(e.message,true); }
 }
 
 /* ---------- Crear restaurante (simplificado) ---------- */
@@ -219,7 +258,11 @@ function editForm(id){
       <div class="sub">/r/${t.slug} · creado ${fdate(t.created_at)}</div></div>
     <span class="close" onclick="closeModal()">×</span></div>
     <div class="field"><label>Nombre</label><input id="ed-name" value="${esc(t.name)}"></div>
-    <div class="field"><label>Restablecer contraseña del usuario «${esc((t.admins||[])[0]||'')}» (opcional)</label>
+    <div class="field"><label>📝 Notas para ti (teléfono, contacto, acuerdos… solo las ves tú)</label>
+      <input id="ed-notes" maxlength="300" value="${esc(t.notes||'')}" placeholder="Ej. Dueño: Paco · 612 345 678 · paga en efectivo"></div>
+    <div class="field"><label>📍 Ubicación (dirección; añade un enlace al mapa en la tarjeta)</label>
+      <input id="ed-loc" maxlength="200" value="${esc(t.location||'')}" placeholder="Ej. Calle Mayor 12, Alcorcón, Madrid"></div>
+    <div class="field"><label>🔑 Restablecer contraseña del usuario «${esc((t.admins||[])[0]||'')}» (opcional, mínimo 8)</label>
       <input id="ed-pass" placeholder="Nueva contraseña (deja vacío para no cambiar)"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
       <button class="btn btn-primary" onclick="saveTenant(${t.id})">Guardar</button>
@@ -258,7 +301,8 @@ async function doDeleteTenant(id){
 }
 async function saveTenant(id){
   try{
-    const body={ name:$('#ed-name').value.trim() };
+    const body={ name:$('#ed-name').value.trim(),
+                 notes:$('#ed-notes').value.trim(), location:$('#ed-loc').value.trim() };
     const pw=$('#ed-pass').value; if(pw) body.reset_admin_password=pw;
     await api('/api/platform/tenants/'+id,{method:'PUT',body});
     closeModal(); toast('Guardado','ok'); loadAll();

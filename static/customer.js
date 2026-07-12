@@ -94,9 +94,10 @@ function showCustomer(data){
   $('#m-xp').textContent = c.xp;
   $('#m-level').textContent = c.level ? c.level.name : '';
   $('#m-code').textContent = c.code;
-  // QR con el código del cliente (su carné digital)
+  // QR carné digital: al escanearlo, abre el panel del restaurante con ESTE cliente ya cargado
   try{
-    const qr = qrcode(0, 'M'); qr.addData(c.code); qr.make();
+    const qrUrl = location.origin + TBASE + '/admin?code=' + encodeURIComponent(c.code);
+    const qr = qrcode(0, 'M'); qr.addData(qrUrl); qr.make();
     $('#m-qr').innerHTML = qr.createImgTag(5, 0);
     const img = $('#m-qr').querySelector('img'); if(img){ img.style.width='170px'; img.style.height='170px'; img.style.display='block'; }
   }catch(e){ $('#m-qr').innerHTML = '<div class="muted">'+esc(c.code)+'</div>'; }
@@ -109,7 +110,8 @@ function showCustomer(data){
     $('#m-prog-wrap').classList.add('hide');
   }
   $('#m-rewards').innerHTML = data.rewards.length ? data.rewards.map(r=>`
-    <div class="reward ${r.affordable?'':'locked'}">
+    <div class="reward ${r.affordable?'afford':'locked'}">
+      ${r.affordable?'<span class="ready-badge">✨ ¡Ya es tuyo!</span>':''}
       <div><strong>${esc(r.name)}</strong>
         <div class="muted">${esc(r.desc||'')}${r.min_level?` · nivel ${r.min_level}+`:''}</div></div>
       <span class="cost">${r.cost_xp} XP</span>

@@ -296,6 +296,14 @@ def init_db():
             db.execute("ALTER TABLE customers ADD COLUMN nickname TEXT")
         if "birthday_bonus_year" not in ccols:
             db.execute("ALTER TABLE customers ADD COLUMN birthday_bonus_year INTEGER")
+        if "xp_total" not in ccols:
+            db.execute("ALTER TABLE customers ADD COLUMN xp_total INTEGER")
+            db.execute("UPDATE customers SET xp_total = xp WHERE xp_total IS NULL")
+        tcols = [r["name"] for r in db.execute("PRAGMA table_info(tenants)").fetchall()]
+        if "notes" not in tcols:
+            db.execute("ALTER TABLE tenants ADD COLUMN notes TEXT")
+        if "location" not in tcols:
+            db.execute("ALTER TABLE tenants ADD COLUMN location TEXT")
         if db.execute("SELECT COUNT(*) c FROM platform_users").fetchone()["c"] == 0:
             db.execute("INSERT INTO platform_users (username, password_hash, created_at) VALUES (?,?,?)",
                        ("admin", hash_password("admin"), now_iso()))
@@ -503,8 +511,8 @@ def grant_birthday_bonuses():
                 "AND (birthday_bonus_year IS NULL OR birthday_bonus_year < ?)",
                 (t["id"], md, year)).fetchall()
             for c in rows:
-                db.execute("UPDATE customers SET xp = xp + ?, birthday_bonus_year = ? WHERE id = ?",
-                           (bonus, year, c["id"]))
+                db.execute("UPDATE customers SET xp = xp + ?, xp_total = COALESCE(xp_total, xp) + ?, "
+                           "birthday_bonus_year = ? WHERE id = ?", (bonus, bonus, year, c["id"]))
                 db.execute("INSERT INTO transactions (customer_id, kind, amount, xp_delta, note, created_at) "
                            "VALUES (?,?,?,?,?,?)",
                            (c["id"], "birthday", 0, bonus, "🎂 Bono de cumpleaños", now_iso()))
@@ -532,7 +540,7 @@ def t_birthdays(ctx):
             "AND substr(birthday, 6, 5) = ? ORDER BY name", (ctx.tenant["id"], md)).fetchall()
     bonus = as_int(ctx.tenant["config"]["earning"].get("birthday_bonus", 0))
     return {"bonus": bonus, "birthdays": [
-        {"id": r["id"], "name": r["name"], "phone": r["phone"], "xp": r["xp"],
+        {"id": r["id"], "name": r["name"], "phone": r["phone"], "xp": (r["xp_total"] if ("xp_total" in r.keys() and r["xp_total"] is not None) else r["xp"]),
          "bonus_applied": r["birthday_bonus_year"] == today.year} for r in rows]}
 
 
@@ -788,20 +796,21 @@ def gen_customer_code(db, tenant_id):
 
 def customer_public(row, cfg):
     levels = cfg["levels"]
-    current, nxt = level_for_xp(row["xp"], levels)
+    xp_total = row["xp_total"] if row["xp_total"] is not None else row["xp"]
+    current, nxt = level_for_xp(xp_total, levels)
     progress = None
     if current and nxt:
         span = nxt["min_xp"] - current["min_xp"]
-        done = row["xp"] - current["min_xp"]
+        done = xp_total - current["min_xp"]
         progress = round(100 * done / span) if span > 0 else 100
     return {
         "id": row["id"], "code": row["code"], "name": row["name"], "phone": row["phone"],
         "nickname": row["nickname"] if "nickname" in row.keys() else None,
-        "email": row["email"], "birthday": row["birthday"], "xp": row["xp"],
+        "email": row["email"], "birthday": row["birthday"], "xp": row["xp"], "xp_total": xp_total,
         "visits": row["visits"], "total_spent": row["total_spent"], "notes": row["notes"],
         "active": bool(row["active"]), "created_at": row["created_at"],
         "level": current, "next_level": nxt,
-        "xp_to_next": (nxt["min_xp"] - row["xp"]) if nxt else 0, "progress_pct": progress,
+        "xp_to_next": (max(0, nxt["min_xp"] - xp_total) if nxt else 0), "progress_pct": progress,
     }
 
 
@@ -995,6 +1004,8 @@ def p_list_tenants(ctx):
             "pay_state": _pay_state(b),
             "price": tenant_price(b),
             "revenue_total": round(revenue.get(r["id"], 0), 2),
+            "notes": (r["notes"] if "notes" in r.keys() else None),
+            "location": (r["location"] if "location" in r.keys() else None),
         })
     out.sort(key=lambda t: (-t["customers"], t["created_at"]))
     return {"tenants": out}
@@ -1045,6 +1056,12 @@ def p_update_tenant(ctx):
             cfg["business"]["name"] = str(b["name"]).strip()
             db.execute("UPDATE tenants SET name = ?, config = ? WHERE id = ?",
                        (cfg["business"]["name"], json.dumps(cfg, ensure_ascii=False), tid))
+        if "notes" in b:
+            db.execute("UPDATE tenants SET notes = ? WHERE id = ?",
+                       (_clean_text(b.get("notes"), 300) or None, tid))
+        if "location" in b:
+            db.execute("UPDATE tenants SET location = ? WHERE id = ?",
+                       (_clean_text(b.get("location"), 200) or None, tid))
         if "active" in b:
             db.execute("UPDATE tenants SET active = ? WHERE id = ?", (1 if b["active"] else 0, tid))
             bl_row = db.execute("SELECT billing FROM tenants WHERE id = ?", (tid,)).fetchone()
@@ -1056,8 +1073,8 @@ def p_update_tenant(ctx):
                        (json.dumps(bl, ensure_ascii=False), tid))
         if b.get("reset_admin_password"):
             new_pw = str(b["reset_admin_password"])
-            if len(new_pw) < 4:
-                raise HttpError(400, "La contraseña debe tener al menos 4 caracteres")
+            if len(new_pw) < 8:
+                raise HttpError(400, "La contraseña debe tener al menos 8 caracteres")
             username = b.get("admin_user")
             if username:
                 row = db.execute("SELECT id FROM admin_users WHERE tenant_id=? AND username=?",
@@ -1097,7 +1114,8 @@ def p_tenant_adjust(ctx):
     with get_db() as db:
         row = _tenant_customer(db, t["id"], cid)
         new_xp = max(0, row["xp"] + delta)
-        db.execute("UPDATE customers SET xp = ? WHERE id = ?", (new_xp, cid))
+        db.execute("UPDATE customers SET xp = ?, "
+                   "xp_total = MAX(0, COALESCE(xp_total, xp) + ?) WHERE id = ?", (new_xp, delta, cid))
         db.execute("INSERT INTO transactions (customer_id, kind, amount, xp_delta, note, created_at) VALUES (?,?,?,?,?,?)",
                    (cid, "adjust", 0, new_xp - row["xp"], reason, now_iso()))
         row = db.execute("SELECT * FROM customers WHERE id = ?", (cid,)).fetchone()
@@ -1506,9 +1524,11 @@ MONTHS_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
 
 
 def _mask_name(name, mode, i, nickname=None):
+    # El APODO elegido por el cliente SIEMPRE gana: es su nombre público voluntario.
+    # Los modos de privacidad solo aplican a quien no ha elegido apodo.
+    if nickname:
+        return nickname
     if mode == "nickname":
-        if nickname:
-            return nickname
         mode = "first_initial"   # sin apodo elegido: proteger con nombre + inicial
     if mode == "anonymized":
         return f"Cliente #{i}"
@@ -1518,12 +1538,10 @@ def _mask_name(name, mode, i, nickname=None):
     return name
 
 
-def t_public_ranking(ctx):
-    """Ranking por temporadas: 'month' = puntos ganados este mes (se renueva solo
-    cada mes, los puntos canjeables no se tocan). 'alltime' = histórico."""
+def t_ranking_data(ctx):
+    """Datos del ranking (sin comprobar visibilidad): lo usan el endpoint público
+    (si está activado) y el panel del restaurante (siempre)."""
     cfg = ctx.tenant["config"]
-    if not cfg["features"].get("public_ranking"):
-        raise HttpError(403, "El ranking no está disponible")
     mode = cfg["features"].get("leaderboard_names", "first_initial")
     tid = ctx.tenant["id"]
     now = datetime.now(timezone.utc)
@@ -1532,25 +1550,26 @@ def t_public_ranking(ctx):
 
     def period_rows(db, since):
         return db.execute(
-            "SELECT c.name, c.nickname, c.xp, "
+            "SELECT c.name, c.nickname, c.xp, COALESCE(c.xp_total, c.xp) AS xp_total, "
             "COALESCE(SUM(CASE WHEN t.xp_delta > 0 THEN t.xp_delta ELSE 0 END), 0) AS pxp "
             "FROM customers c "
             "LEFT JOIN transactions t ON t.customer_id = c.id AND t.created_at >= ? "
             "WHERE c.tenant_id = ? AND c.active = 1 "
             "GROUP BY c.id HAVING pxp > 0 "
-            "ORDER BY pxp DESC, c.xp DESC LIMIT 20", (since, tid)).fetchall()
+            "ORDER BY pxp DESC, COALESCE(c.xp_total, c.xp) DESC LIMIT 20", (since, tid)).fetchall()
 
     with get_db() as db:
         month_rows = period_rows(db, month_start)
         year_rows = period_rows(db, year_start)
         all_rows = db.execute(
-            "SELECT name, nickname, xp FROM customers WHERE tenant_id = ? AND active = 1 "
-            "ORDER BY xp DESC LIMIT 20", (tid,)).fetchall()
+            "SELECT name, nickname, xp, COALESCE(xp_total, xp) AS xp_total "
+            "FROM customers WHERE tenant_id = ? AND active = 1 "
+            "ORDER BY COALESCE(xp_total, xp) DESC LIMIT 20", (tid,)).fetchall()
 
     def build(rows, xp_key):
         out = []
         for i, r in enumerate(rows, start=1):
-            lvl, _ = level_for_xp(r["xp"], cfg["levels"])
+            lvl, _ = level_for_xp((r["xp_total"] if r["xp_total"] is not None else r["xp"]), cfg["levels"])
             out.append({"rank": i, "name": _mask_name(r["name"], mode, i, r["nickname"]),
                         "xp": r[xp_key], "level": lvl["name"] if lvl else ""})
         return out
@@ -1564,7 +1583,7 @@ def t_public_ranking(ctx):
         "year_label": f"Ranking de {now.year}",
         "month": build(month_rows, "pxp"),
         "year": build(year_rows, "pxp"),
-        "alltime": build(all_rows, "xp"),
+        "alltime": build(all_rows, "xp_total"),
     }
     result["ranking"] = result[period if period != "alltime" else "alltime"]
     return result
@@ -1599,6 +1618,13 @@ def t_public_lookup(ctx):
         "xp_to_next": data["xp_to_next"], "progress_pct": data["progress_pct"],
         "nickname": data.get("nickname"),
     }, "rewards": redeemable}
+
+
+def t_public_ranking(ctx):
+    """Ranking visible para los clientes SOLO si el restaurante lo tiene en público."""
+    if not ctx.tenant["config"]["features"].get("public_ranking"):
+        raise HttpError(403, "El ranking no está disponible")
+    return t_ranking_data(ctx)
 
 
 def t_public_nickname(ctx):
@@ -1644,11 +1670,11 @@ def t_find_customer(ctx):
 
 
 SORTS = {
-    "xp": "c.xp DESC",
-    "visits": "c.visits DESC, c.xp DESC",
+    "xp": "COALESCE(c.xp_total, c.xp) DESC",
+    "visits": "c.visits DESC, COALESCE(c.xp_total, c.xp) DESC",
     "spent": "c.total_spent DESC",
     "recent": "c.created_at DESC",
-    "redemptions": "redemptions_count DESC, c.xp DESC",
+    "redemptions": "redemptions_count DESC, COALESCE(c.xp_total, c.xp) DESC",
 }
 
 
@@ -1707,10 +1733,10 @@ def t_create_customer(ctx):
         nickname = validate_nickname(db, tid, b.get("nickname"))
         code = gen_customer_code(db, tid)
         cur = db.execute(
-            "INSERT INTO customers (tenant_id, code, name, phone, email, birthday, xp, notes, nickname, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO customers (tenant_id, code, name, phone, email, birthday, xp, xp_total, notes, nickname, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (tid, code, name, phone, (b.get("email") or "").strip() or None,
-             b.get("birthday") or None, signup, b.get("notes") or None, nickname, now_iso()))
+             b.get("birthday") or None, signup, signup, b.get("notes") or None, nickname, now_iso()))
         cid = cur.lastrowid
         if signup:
             db.execute("INSERT INTO transactions (customer_id, kind, amount, xp_delta, note, created_at) VALUES (?,?,?,?,?,?)",
@@ -1787,19 +1813,19 @@ def t_earn(ctx):
     cid = as_int(ctx.params["cid"])
     amount = min(100000.0, max(0.0, as_float(ctx.body.get("amount"))))
     count_visit = ctx.body.get("count_visit", True)
+    # La visita NO da puntos: solo cuenta cuántas veces ha venido. Los puntos salen del gasto.
     xp = amount * as_float(e.get("xp_per_currency", 0))
-    if count_visit:
-        xp += as_float(e.get("xp_per_visit", 0))
     xp = int(xp) if e.get("round_mode") == "floor" else round(xp)
-    if xp <= 0 and amount <= 0:
-        raise HttpError(400, "No hay importe ni XP que registrar")
+    if amount <= 0 and not count_visit:
+        raise HttpError(400, "No hay importe ni visita que registrar")
     with get_db() as db:
         row = _tenant_customer(db, ctx.tenant["id"], cid)
         if not row["active"]:
             raise HttpError(400, "Cliente bloqueado: desbloquéalo para registrar consumos")
-        before = row["xp"]
-        db.execute("UPDATE customers SET xp = xp + ?, total_spent = total_spent + ?, visits = visits + ? WHERE id = ?",
-                   (xp, amount, 1 if count_visit else 0, cid))
+        before = row["xp_total"] if row["xp_total"] is not None else row["xp"]
+        db.execute("UPDATE customers SET xp = xp + ?, xp_total = COALESCE(xp_total, xp) + ?, "
+                   "total_spent = total_spent + ?, visits = visits + ? WHERE id = ?",
+                   (xp, xp, amount, 1 if count_visit else 0, cid))
         db.execute("INSERT INTO transactions (customer_id, kind, amount, xp_delta, note, created_at) VALUES (?,?,?,?,?,?)",
                    (cid, "earn", amount, xp, ctx.body.get("note") or None, now_iso()))
         row = db.execute("SELECT * FROM customers WHERE id = ?", (cid,)).fetchone()
@@ -1818,7 +1844,8 @@ def t_adjust(ctx):
         if not row["active"]:
             raise HttpError(400, "Cliente bloqueado: desbloquéalo para ajustar puntos")
         new_xp = max(0, row["xp"] + delta)
-        db.execute("UPDATE customers SET xp = ? WHERE id = ?", (new_xp, cid))
+        db.execute("UPDATE customers SET xp = ?, "
+                   "xp_total = MAX(0, COALESCE(xp_total, xp) + ?) WHERE id = ?", (new_xp, delta, cid))
         db.execute("INSERT INTO transactions (customer_id, kind, amount, xp_delta, note, created_at) VALUES (?,?,?,?,?,?)",
                    (cid, "adjust", 0, new_xp - row["xp"], ctx.body.get("reason") or "Ajuste manual", now_iso()))
         row = db.execute("SELECT * FROM customers WHERE id = ?", (cid,)).fetchone()
@@ -1878,11 +1905,12 @@ def t_stats(ctx):
             (tid,)).fetchone()["c"]
         since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         new30 = db.execute("SELECT COUNT(*) c FROM customers WHERE tenant_id=? AND created_at >= ?", (tid, since)).fetchone()["c"]
-        top = db.execute("SELECT name, xp FROM customers WHERE tenant_id=? AND active=1 ORDER BY xp DESC LIMIT 5", (tid,)).fetchall()
+        top = db.execute("SELECT name, COALESCE(xp_total, xp) AS xp FROM customers WHERE tenant_id=? AND active=1 "
+                         "ORDER BY COALESCE(xp_total, xp) DESC LIMIT 5", (tid,)).fetchall()
         rows = db.execute("SELECT xp FROM customers WHERE tenant_id=? AND active=1", (tid,)).fetchall()
     dist = {lv["name"]: 0 for lv in cfg["levels"]}
     for r in rows:
-        lv, _ = level_for_xp(r["xp"], cfg["levels"])
+        lv, _ = level_for_xp((r["xp_total"] if r["xp_total"] is not None else r["xp"]), cfg["levels"])
         if lv:
             dist[lv["name"]] = dist.get(lv["name"], 0) + 1
     return {
@@ -1902,10 +1930,10 @@ def build_customers_csv(tenant):
     w.writerow(["codigo", "nombre", "apodo", "telefono", "email", "cumple", "xp", "nivel",
                 "visitas", "gastado", "alta"])
     with get_db() as db:
-        rows = db.execute("SELECT * FROM customers WHERE tenant_id=? ORDER BY xp DESC",
+        rows = db.execute("SELECT * FROM customers WHERE tenant_id=? ORDER BY COALESCE(xp_total, xp) DESC",
                           (tenant["id"],)).fetchall()
     for r in rows:
-        lv, _ = level_for_xp(r["xp"], cfg["levels"])
+        lv, _ = level_for_xp((r["xp_total"] if r["xp_total"] is not None else r["xp"]), cfg["levels"])
         w.writerow([r["code"], r["name"], (r["nickname"] if "nickname" in r.keys() else "") or "",
                     r["phone"] or "", r["email"] or "",
                     r["birthday"] or "", r["xp"], lv["name"] if lv else "",
@@ -1953,6 +1981,7 @@ TENANT_ROUTES = [
     ("GET",    r"/api/info",        t_info,           True),
     ("GET",    r"/api/public/config",  t_public_config,  False),
     ("GET",    r"/api/public/ranking", t_public_ranking, False),
+    ("GET",    r"/api/ranking",        t_ranking_data,   True),
     ("POST",   r"/api/public/lookup",  t_public_lookup,  False),
     ("POST",   r"/api/public/nickname", t_public_nickname, False),
     ("GET",    r"/api/customers/find", t_find_customer, True),

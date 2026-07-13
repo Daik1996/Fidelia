@@ -20,7 +20,7 @@
     --radius:14px;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;padding:0}
+  html,body{margin:0;padding:0;max-width:100%;overflow-x:hidden}
   body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--bg);
     font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
   h1,h2,h3,.display{font-family:'Bricolage Grotesque',sans-serif;letter-spacing:-.02em;margin:0}
@@ -142,7 +142,12 @@
     .sidebar.open{transform:none;box-shadow:0 0 40px rgba(0,0,0,.3)}
     .form-grid,.two-col{grid-template-columns:1fr}
     .main{padding:64px 16px 18px}
-    table{display:block;overflow-x:auto;white-space:nowrap}
+    table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+    /* Editores de niveles y recompensas: apilar en 2 columnas en vez de 5-6 (causaba zoom) */
+    .lv-row{grid-template-columns:1fr 1fr !important;gap:8px}
+    .rw-row{grid-template-columns:1fr 1fr !important;gap:8px}
+    .stat-grid{grid-template-columns:1fr 1fr}
+    .bar-row{grid-template-columns:64px 1fr 34px;font-size:12px}
   }
 </style>
 </head>
@@ -173,6 +178,7 @@
     <div class="nav-item" data-view="register"><span class="ic">＋</span> Registrar consumo</div>
     <div class="nav-item" data-view="program"><span class="ic">⚙</span> Programa</div>
     <div class="nav-item" data-view="ranking"><span class="ic">★</span> Ranking</div>
+    <div class="nav-item hide" id="nav-chain" data-view="chain"><span class="ic">👑</span> Mi cadena</div>
     <div class="nav-item nav-sep" data-view="settings"><span class="ic">⚑</span> Ajustes</div>
     <div class="nav-item" onclick="doLogout()"><span class="ic">⏻</span> Salir</div>
   </aside>
@@ -182,6 +188,16 @@
 
 <div id="modal-root"></div>
 <div id="toasts"></div>
+
+<!-- Aviso instalar app (dueño del restaurante) -->
+<div id="install-banner" class="hide" style="position:fixed;left:12px;right:12px;bottom:12px;max-width:560px;margin:0 auto;
+  background:var(--card,#fff);border:1px solid var(--line);border-radius:14px;padding:14px 16px;
+  box-shadow:0 10px 40px rgba(0,0,0,.18);display:flex;align-items:center;gap:12px;z-index:70">
+  <div style="flex:1"><strong>📲 Añade "Fidelia" a tu dispositivo</strong>
+    <div style="color:var(--muted);font-size:13px">Crea el acceso directo en tu pantalla de inicio y abre la gestión con un toque, sin buscar el enlace.</div></div>
+  <button class="btn btn-primary" style="width:auto;margin:0;white-space:nowrap;padding:10px 16px" onclick="installApp()">Añadir</button>
+  <button onclick="dismissInstall()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer">×</button>
+</div>
 
 <script src="/static/admin.js"></script>
 </body>

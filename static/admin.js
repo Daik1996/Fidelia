@@ -6,6 +6,22 @@ let CONFIG = null;          // configuración completa del negocio
 let CUR = '€';              // símbolo de moneda
 let VIEW = 'dashboard';
 
+// Capacidades según el plan contratado (las rellena el backend en /api/config)
+const caps = c => !!(CONFIG && CONFIG._caps && CONFIG._caps[c]);
+const planLabel = () => (CONFIG && CONFIG._plan_info && CONFIG._plan_info.label) || 'tu plan';
+// Panel "bloqueado" reutilizable: se muestra al restaurante en lugar de la función premium
+function lockCard(titulo, desc, planNecesario){
+  return `<div class="card section-card" style="border:1.5px dashed var(--line);text-align:center;padding:26px 20px;opacity:.95">
+    <div style="font-size:32px">🔒</div>
+    <h3 style="margin:8px 0 4px">${titulo}</h3>
+    <div class="hint" style="max-width:420px;margin:0 auto 12px">${desc}</div>
+    <div style="display:inline-block;background:linear-gradient(135deg,#8d4470,#c06a9e);color:#fff;
+      font-weight:700;font-size:13px;padding:8px 16px;border-radius:22px">
+      Disponible en el plan ${planNecesario} ✨</div>
+    <div class="hint" style="margin-top:10px">Habla con tu proveedor de Fidelia para mejorar tu plan.</div>
+  </div>`;
+}
+
 // Prefijo del restaurante: /r/<slug> (esta página vive en /r/<slug>/admin)
 const TBASE = location.pathname.replace(/\/admin\/?$/, '');
 
@@ -19,6 +35,29 @@ if('serviceWorker' in navigator){
       if(reg.waiting) reg.waiting.postMessage('skip'); })
     .catch(()=>{}));
 }
+
+/* ---------- Instalar como app (acceso directo "Fidelia") ---------- */
+let deferredPrompt = null;
+function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
+function showInstallBanner(){
+  if(isStandalone()) return;
+  try{ if(localStorage.getItem('fid_install_off')) return; }catch{}
+  document.getElementById('install-banner')?.classList.remove('hide');
+}
+window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; showInstallBanner(); });
+async function installApp(){
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if(deferredPrompt){
+    document.getElementById('install-banner')?.classList.add('hide');
+    deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null;
+  }else if(isIOS){
+    alert('Para añadir "Fidelia" a tu pantalla de inicio:\n\n1) Toca el botón Compartir (el cuadrado con la flecha ↑) abajo en Safari.\n2) Desliza y elige "Añadir a pantalla de inicio".\n3) Confirma con "Añadir".\n\nQuedará el icono de Fidelia para entrar directo a la gestión.');
+  }else{
+    alert('Para añadir "Fidelia" a tu pantalla de inicio, abre el menú de tu navegador (⋮) y elige "Añadir a pantalla de inicio" o "Instalar app".');
+  }
+}
+function dismissInstall(){ document.getElementById('install-banner')?.classList.add('hide'); try{localStorage.setItem('fid_install_off','1');}catch{} }
+window.addEventListener('load', ()=> setTimeout(showInstallBanner, 1500));
 
 /* ---------- API helper ---------- */
 async function api(path, opts={}){
@@ -78,6 +117,9 @@ async function boot(){
   $$('.nav-item[data-view]').forEach(n=>{
     n.onclick = ()=>{ setView(n.dataset.view); };
   });
+  // La pestaña "Mi cadena" solo existe para restaurantes de plan Cadena con grupo asignado
+  const showChain = CONFIG._plan==='cadena' && !!CONFIG._chain;
+  $('#nav-chain')?.classList.toggle('hide', !showChain);
   if(!CONFIG.setup_done){ showSetupWizard(); return; }
   setView('dashboard');
 }
@@ -135,7 +177,7 @@ function setView(v){
   $('#nav-backdrop')?.classList.remove('show');
   $$('.nav-item[data-view]').forEach(n=>n.classList.toggle('active', n.dataset.view===v));
   ({dashboard:renderDashboard, customers:renderCustomers, register:renderRegister,
-    program:renderProgram, ranking:renderRanking, settings:renderSettings}[v] || renderDashboard)();
+    program:renderProgram, ranking:renderRanking, chain:renderChain, settings:renderSettings}[v] || renderDashboard)();
 }
 
 /* ================= DASHBOARD ================= */
@@ -144,12 +186,13 @@ async function renderDashboard(){
   m.innerHTML = `<div class="page-head"><div><h1>Panel</h1>
     <div class="sub">${esc(CONFIG.business.name)}</div></div></div>
     <div id="dash-body"><div class="empty">Cargando…</div></div>`;
-  const s = await api('/api/stats');
+  const hasStats = caps('stats');
+  const s = hasStats ? await api('/api/stats') : {};
   const dist = s.level_distribution || {};
   const maxDist = Math.max(1, ...Object.values(dist));
   let extras='';
   try{
-    const [info,bd] = await Promise.all([api('/api/info'), api('/api/birthdays')]);
+    const info = await api('/api/info');
     if(info.billing_notice){
       const n=info.billing_notice;
       extras += `<div style="padding:12px 16px;border-radius:12px;margin-bottom:14px;
@@ -158,31 +201,20 @@ async function renderDashboard(){
         ${n.days_left<0?'⚠️ Tu suscripción venció el '+fdate(n.paid_until)+'. Contacta con tu proveedor para renovarla y evitar la suspensión.'
           :'ℹ️ Tu suscripción se renueva el '+fdate(n.paid_until)+' ('+(n.days_left===0?'hoy':'en '+n.days_left+' día'+(n.days_left===1?'':'s'))+').'}</div>`;
     }
-    if(bd.birthdays.length){
-      extras += `<div class="card section-card" style="border-left:4px solid #e56aa2">
-        <h3>🎂 Cumpleaños de hoy</h3>
-        <div class="hint">¡Felicítales cuando vengan! ${bd.bonus?`El bono de +${bd.bonus} pts se les aplica solo.`:''}</div>
-        ${bd.birthdays.map(b=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line)">
-          <span><strong>${esc(b.name)}</strong>${b.phone?` <span class="sub">${esc(b.phone)}</span>`:''}</span>
-          <span class="sub">${b.bonus_applied?'✓ bono aplicado':''}</span></div>`).join('')}
-      </div>`;
+    if(caps('birthday')){
+      const bd = await api('/api/birthdays');
+      if(bd.birthdays.length){
+        extras += `<div class="card section-card" style="border-left:4px solid #e56aa2">
+          <h3>🎂 Cumpleaños de hoy</h3>
+          <div class="hint">¡Felicítales cuando vengan! ${bd.bonus?`El bono de +${bd.bonus} pts se les aplica solo.`:''}</div>
+          ${bd.birthdays.map(b=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--line)">
+            <span><strong>${esc(b.name)}</strong>${b.phone?` <span class="sub">${esc(b.phone)}</span>`:''}</span>
+            <span class="sub">${b.bonus_applied?'✓ bono aplicado':''}</span></div>`).join('')}
+        </div>`;
+      }
     }
   }catch{}
-  $('#dash-body').innerHTML = extras + `
-    <div class="card section-card" style="border-left:4px solid var(--gold)">
-      <h3>⚡ Cobro rápido</h3>
-      <div class="hint">Teléfono o código del cliente + importe de la cuenta. Nada más.</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-        <div class="field" style="margin:0;flex:1;min-width:170px"><label>Teléfono o código</label>
-          <input id="qk-q" placeholder="612345678" onkeydown="if(event.key==='Enter')quickCharge()"></div>
-        <div class="field" style="margin:0;width:130px"><label>Importe (${CUR})</label>
-          <input id="qk-amt" type="number" step="0.01" placeholder="0.00" onkeydown="if(event.key==='Enter')quickCharge()"></div>
-        <label style="display:flex;gap:7px;align-items:center;font-size:13.5px;font-weight:600;color:var(--muted);padding-bottom:9px">
-          <input type="checkbox" id="qk-visit" checked style="width:auto"> visita</label>
-        <button class="btn btn-primary" style="height:40px" onclick="quickCharge()">Sumar puntos</button>
-      </div>
-      <div id="qk-out" style="margin-top:10px"></div>
-    </div>
+  const statsBlock = hasStats ? `
     <div class="stat-grid">
       ${stat('Clientes', s.total_customers)}
       ${stat('Nuevos (30 días)', s.new_last_30)}
@@ -210,10 +242,87 @@ async function renderDashboard(){
           || '<tr><td class="empty">Aún no hay clientes.</td></tr>'}
         </tbody></table>
       </div>
-    </div>`;
+    </div>`
+    : lockCard('Estadísticas de tu negocio',
+        'Consulta cuántos clientes tienes, cuánto has facturado, tu distribución por niveles y tu top de clientes más fieles.',
+        'Pro');
+  $('#dash-body').innerHTML = extras + `
+    <div class="card section-card" style="border-left:4px solid var(--gold)">
+      <h3>⚡ Cobro rápido</h3>
+      <div class="hint">Teléfono o código del cliente + importe de la cuenta. Nada más.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="margin:0;flex:1;min-width:170px"><label>Teléfono o código</label>
+          <input id="qk-q" placeholder="612345678" onkeydown="if(event.key==='Enter')quickCharge()"></div>
+        <div class="field" style="margin:0;width:130px"><label>Importe (${CUR})</label>
+          <input id="qk-amt" type="number" step="0.01" placeholder="0.00" onkeydown="if(event.key==='Enter')quickCharge()"></div>
+        <label style="display:flex;gap:7px;align-items:center;font-size:13.5px;font-weight:600;color:var(--muted);padding-bottom:9px">
+          <input type="checkbox" id="qk-visit" checked style="width:auto"> visita</label>
+        <button class="btn btn-primary" style="height:40px" onclick="quickCharge()">Sumar puntos</button>
+      </div>
+      <div id="qk-out" style="margin-top:10px"></div>
+    </div>
+    ${statsBlock}`;
   applyPendingCode();
 }
 const stat=(k,v)=>`<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+
+/* ================= MI CADENA (panel unificado multi-local) ================= */
+function localAdminUrl(slug){
+  const base = TBASE.replace(/\/[^/]+$/, '/' + slug);
+  return location.origin + base + '/admin';
+}
+async function renderChain(){
+  const m = $('#main');
+  m.innerHTML = `<div class="page-head"><div><h1>Mi cadena</h1>
+    <div class="sub">Resumen de todos tus locales juntos</div></div></div>
+    <div id="chain-body"><div class="empty">Cargando…</div></div>`;
+  let ov;
+  try{ ov = await api('/api/chain/overview'); }
+  catch(e){ $('#chain-body').innerHTML = `<div class="card section-card"><div class="empty">No se pudo cargar la cadena. ${esc(e.message)}</div></div>`; return; }
+  const t = ov.totals, cur = ov.currency || CUR;
+  const maxSpent = Math.max(1, ...ov.locals.map(l=>l.spent));
+  $('#chain-body').innerHTML = `
+    <div class="card section-card" style="border-left:4px solid var(--gold)">
+      <h3>👑 ${esc(ov.chain_name)}</h3>
+      <div class="hint">${ov.count} local${ov.count===1?'':'es'} en esta cadena. Los datos son la suma de todos.</div>
+    </div>
+    <div class="stat-grid">
+      ${stat('Locales', ov.count)}
+      ${stat('Clientes totales', t.customers)}
+      ${stat('Nuevos (30 días)', t.new_last_30)}
+      ${stat('Visitas totales', t.visits)}
+      ${stat('Facturado total', fmt(t.spent)+' '+cur)}
+      ${stat('Canjes totales', t.redemptions)}
+    </div>
+    <div class="card section-card">
+      <h3>Comparativa por local</h3>
+      <div class="hint">Ordenados por facturación. El tuyo actual va marcado.</div>
+      <div style="overflow-x:auto">
+      <table class="chain-table" style="width:100%;border-collapse:collapse;margin-top:6px">
+        <thead><tr style="text-align:left;border-bottom:2px solid var(--line)">
+          <th style="padding:8px 6px">Local</th>
+          <th style="padding:8px 6px;text-align:right">Clientes</th>
+          <th style="padding:8px 6px;text-align:right">Facturado</th>
+          <th style="padding:8px 6px;text-align:right">Visitas</th>
+          <th style="padding:8px 6px;text-align:right">Canjes</th>
+          <th style="padding:8px 6px"></th>
+        </tr></thead>
+        <tbody>
+        ${ov.locals.map(l=>`<tr style="border-bottom:1px solid var(--line);${l.is_current?'background:rgba(242,182,61,.10)':''}">
+          <td style="padding:9px 6px;font-weight:700">${esc(l.name)}${l.is_current?' <span class="sub" style="color:var(--gold)">(este)</span>':''}${l.active?'':' <span class="sub" style="color:var(--bad)">suspendido</span>'}
+            <div style="height:5px;background:var(--line);border-radius:4px;margin-top:5px;max-width:220px">
+              <div style="height:100%;width:${Math.round(100*l.spent/maxSpent)}%;background:var(--gold);border-radius:4px"></div></div></td>
+          <td style="padding:9px 6px;text-align:right">${l.customers}</td>
+          <td style="padding:9px 6px;text-align:right;font-weight:700">${fmt(l.spent)} ${cur}</td>
+          <td style="padding:9px 6px;text-align:right">${l.visits}</td>
+          <td style="padding:9px 6px;text-align:right">${l.redemptions}</td>
+          <td style="padding:9px 6px;text-align:right">${l.is_current?'':`<a class="btn btn-ghost btn-sm" style="padding:5px 10px" href="${localAdminUrl(l.slug)}" target="_blank" rel="noopener">Abrir ↗</a>`}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>`;
+}
 
 /* ================= CLIENTES ================= */
 let custQuery='';
@@ -269,7 +378,7 @@ function customerForm(c=null){
       <div class="field" style="grid-column:1/-1"><label>Nombre *</label><input id="c-name" value="${esc(c?.name||'')}"></div>
       <div class="field"><label>Teléfono</label><input id="c-phone" value="${esc(c?.phone||'')}"></div>
       <div class="field"><label>Email</label><input id="c-email" value="${esc(c?.email||'')}"></div>
-      <div class="field"><label>Cumpleaños</label><input id="c-bday" type="date" value="${esc(c?.birthday||'')}"></div>
+      ${caps('birthday')?`<div class="field"><label>Cumpleaños</label><input id="c-bday" type="date" value="${esc(c?.birthday||'')}"></div>`:''}
       <div class="field"><label>Apodo en el ranking <span class="sub">(único en tu local)</span></label>
         <input id="c-nick" maxlength="20" placeholder="Ej. ElDelFondo" value="${esc(c?.nickname||'')}"></div>
       <div class="field" style="grid-column:1/-1"><label>Notas</label><input id="c-notes" value="${esc(c?.notes||'')}"></div>
@@ -281,7 +390,7 @@ function customerForm(c=null){
 }
 async function saveCustomer(id){
   const body={name:$('#c-name').value.trim(), phone:$('#c-phone').value.trim(),
-    email:$('#c-email').value.trim(), birthday:$('#c-bday').value, notes:$('#c-notes').value.trim(),
+    email:$('#c-email').value.trim(), birthday:($('#c-bday')?.value||''), notes:$('#c-notes').value.trim(),
     nickname:$('#c-nick').value.trim()};
   if(!body.name){ toast('El nombre es obligatorio','bad'); return; }
   try{
@@ -522,15 +631,15 @@ function progBusiness(){
         <div class="field"><label>Símbolo de moneda</label><input value="${esc(b.currency_symbol)}" ${bind('business.currency_symbol')}></div>
         <div class="field" style="grid-column:1/-1"><label>Eslogan</label><input value="${esc(b.tagline)}" ${bind('business.tagline')}></div>
       </div>
-      <div class="field"><label>Logotipo</label>
+      ${caps('branding')?`<div class="field"><label>Logotipo</label>
         <div style="display:flex;align-items:center;gap:14px">
           <div id="logo-prev" style="width:56px;height:56px;border-radius:12px;border:1px solid var(--line);background:#fff url('${b.logo_data||''}') center/contain no-repeat;display:grid;place-items:center;color:var(--muted);font-size:11px">${b.logo_data?'':'Logo'}</div>
           <input type="file" accept="image/*" onchange="uploadLogo(this)" style="max-width:280px">
           ${b.logo_data?`<button class="btn btn-ghost btn-sm" onclick="setCfg('business.logo_data','');liveSave('business');progBusiness()">Quitar</button>`:''}
         </div><div class="sub" style="margin-top:6px">PNG o JPG (recomendado &lt; 300 KB).</div>
-      </div>
+      </div>`:''}
     </div>
-    <div class="card section-card">
+    ${caps('branding')?`<div class="card section-card">
       <h3>Colores y estilo</h3><div class="hint">La app de tus clientes se pinta con estos colores al instante.</div>
       <div class="form-grid">
         <div class="field"><label>Color principal</label>
@@ -550,7 +659,9 @@ function progBusiness(){
           <div style="background:${t.primary};color:#fff;padding:18px;font-family:'Bricolage Grotesque';font-weight:800;font-size:20px">${esc(b.name)}</div>
           <div style="padding:16px;background:#fff"><span class="badge" style="background:${t.accent};color:#3a2600">Recompensa disponible</span></div>
         </div></div>
-    </div>
+    </div>`:lockCard('Marca propia: logo y colores',
+        'Sube tu logotipo y pon los colores y la tipografía de tu marca. Tus clientes verán la app con la identidad de tu negocio en lugar del diseño estándar.',
+        'Pro')}
     <div class="card section-card">
       <h3>Mensajes</h3><div class="hint">Textos que aparecen en la pantalla de tus clientes.</div>
       <div class="field"><label>Mensaje de bienvenida</label><textarea rows="2" ${bind('texts.welcome')}>${esc(x.welcome)}</textarea></div>

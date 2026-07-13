@@ -40,6 +40,17 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
   if(CFG.features.public_ranking) loadRanking();
   // Catálogo público (niveles + premios) visible sin identificarse
   renderCatalog();
+  // Si ya se identificó antes en este dispositivo, cargar su ficha automáticamente
+  if(CFG.features.self_lookup){
+    let saved=null; try{ saved=localStorage.getItem('fid_myq'); }catch{}
+    if(saved){
+      try{
+        const data = await api('/api/public/lookup',{method:'POST',body:{query:saved}});
+        window._MYQ = saved;
+        showCustomer(data);
+      }catch{ try{ localStorage.removeItem('fid_myq'); }catch{} }  // si ya no existe, olvidar
+    }
+  }
 })();
 
 function renderCatalog(){
@@ -79,6 +90,7 @@ async function lookup(){
   try{
     const data = await api('/api/public/lookup',{method:'POST',body:{query:q}});
     window._MYQ = q;
+    try{ localStorage.setItem('fid_myq', q); }catch{}   // recordar para próximas visitas
     showCustomer(data);
   }catch(e){
     $('#err').textContent = e.message; $('#err').classList.remove('hide');
@@ -132,18 +144,44 @@ if('serviceWorker' in navigator){
 let deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', e=>{
   e.preventDefault(); deferredPrompt = e;
-  if(!localStorage.getItem('fid_install_off')) $('#install-banner')?.classList.remove('hide');
+  showInstallBanner();
 });
+function isStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function showInstallBanner(){
+  if(isStandalone()) return;                              // ya instalada: no molestar
+  if(localStorage.getItem('fid_install_off')) return;    // el usuario la cerró
+  $('#install-banner')?.classList.remove('hide');
+}
 async function installApp(){
-  $('#install-banner')?.classList.add('hide');
-  if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; }
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if(deferredPrompt){
+    // Android/Chrome: instalación nativa en 1 toque
+    $('#install-banner')?.classList.add('hide');
+    deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null;
+  }else if(isIOS){
+    // iPhone/iPad: Safari no permite instalación automática -> explicar los pasos
+    alert('Para añadir "Fidelia" a tu pantalla de inicio:\n\n1) Toca el botón Compartir (el cuadrado con la flecha ↑) abajo en Safari.\n2) Desliza y elige "Añadir a pantalla de inicio".\n3) Confirma con "Añadir".\n\nQuedará el icono de Fidelia para entrar directo.');
+  }else{
+    // Otros navegadores: instrucción genérica
+    alert('Para añadir "Fidelia" a tu pantalla de inicio, abre el menú de tu navegador (⋮) y elige "Añadir a pantalla de inicio" o "Instalar app".');
+  }
 }
 function dismissInstall(){ $('#install-banner')?.classList.add('hide'); try{localStorage.setItem('fid_install_off','1');}catch{} }
+// Mostrar el aviso también cuando NO hay evento nativo (iPhone) tras cargar
+window.addEventListener('load', ()=> setTimeout(showInstallBanner, 1500));
 
 function reset(){
   $('#mine').classList.add('hide');
   $('#lookup-card').classList.remove('hide');
   $('#q').value=''; $('#err').classList.add('hide');
+}
+
+function forgetMe(){
+  try{ localStorage.removeItem('fid_myq'); }catch{}
+  window._MYQ = null;
+  reset();
 }
 
 function renderNickBox(nick){

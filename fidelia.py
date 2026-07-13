@@ -173,6 +173,53 @@ SUGGESTED_TEMPLATES = {
     },
 }
 
+# --- Planes comerciales (fuente única) ---
+# El plan es informativo para TU panel (etiqueta + color + precio sugerido).
+# No bloquea funciones; sirve para que tú sepas cuánto cobras a cada restaurante.
+PLANS = {
+    "basico": {"key": "basico", "label": "Básico", "price": 39,
+               "color": "#6b7280", "color2": "#9aa4ad", "emoji": "◾",
+               "features": "Puntos, premios y ranking"},
+    "pro":    {"key": "pro",    "label": "Pro",    "price": 69,
+               "color": "#8d4470", "color2": "#c06a9e", "emoji": "⭐",
+               "features": "Todo + cumpleaños, estadísticas y marca propia"},
+    "cadena": {"key": "cadena", "label": "Cadena", "price": 129,
+               "color": "#b8860b", "color2": "#e0a021", "emoji": "👑",
+               "features": "Multi-local, panel unificado y soporte prioritario"},
+}
+DEFAULT_PLAN = "pro"
+
+# Qué funciones desbloquea cada plan. Fuente única para backend y frontend.
+#   birthday : bonos de cumpleaños automáticos (+ pedir fecha al cliente)
+#   stats    : panel de estadísticas del restaurante (niveles, top, facturado)
+#   branding : personalización de marca (logo, colores, tipografía)
+PLAN_FEATURES = {
+    "basico": {"birthday": False, "stats": False, "branding": False},
+    "pro":    {"birthday": True,  "stats": True,  "branding": True},
+    "cadena": {"birthday": True,  "stats": True,  "branding": True},
+}
+
+def norm_plan(v):
+    v = str(v or "").strip().lower()
+    return v if v in PLANS else DEFAULT_PLAN
+
+def plan_caps(plan):
+    return PLAN_FEATURES.get(norm_plan(plan), PLAN_FEATURES[DEFAULT_PLAN])
+
+def plan_allows(plan, cap):
+    return bool(plan_caps(plan).get(cap, False))
+
+def clean_chain(v):
+    """Nombre visible de la cadena: recorta y colapsa espacios. Vacío -> None."""
+    s = re.sub(r"\s+", " ", str(v or "").strip())
+    return s[:60] or None
+
+def chain_key(v):
+    """Clave para agrupar locales de la misma cadena (insensible a mayúsculas)."""
+    s = clean_chain(v)
+    return s.casefold() if s else None
+
+
 
 # --------------------------------------------------------------------------- #
 #  Base de datos                                                              #
@@ -304,6 +351,11 @@ def init_db():
             db.execute("ALTER TABLE tenants ADD COLUMN notes TEXT")
         if "location" not in tcols:
             db.execute("ALTER TABLE tenants ADD COLUMN location TEXT")
+        if "plan" not in tcols:
+            db.execute("ALTER TABLE tenants ADD COLUMN plan TEXT DEFAULT 'pro'")
+            db.execute("UPDATE tenants SET plan = 'pro' WHERE plan IS NULL")
+        if "chain_group" not in tcols:
+            db.execute("ALTER TABLE tenants ADD COLUMN chain_group TEXT")
         if db.execute("SELECT COUNT(*) c FROM platform_users").fetchone()["c"] == 0:
             db.execute("INSERT INTO platform_users (username, password_hash, created_at) VALUES (?,?,?)",
                        ("admin", hash_password("admin"), now_iso()))
@@ -499,8 +551,10 @@ def grant_birthday_bonuses():
     year = today.year
     granted = 0
     with get_db() as db:
-        tenants = db.execute("SELECT id, config FROM tenants WHERE active = 1").fetchall()
+        tenants = db.execute("SELECT id, config, plan FROM tenants WHERE active = 1").fetchall()
         for t in tenants:
+            if not plan_allows(t["plan"] if "plan" in t.keys() else None, "birthday"):
+                continue
             cfg = _merge_defaults(DEFAULT_CONFIG, json.loads(t["config"]))
             bonus = as_int(cfg["earning"].get("birthday_bonus", 0))
             if bonus <= 0:
@@ -531,6 +585,8 @@ def prune_rate_limits():
 
 def t_birthdays(ctx):
     """Cumpleaños de HOY de este restaurante (para felicitar en el local)."""
+    if not plan_allows(ctx.tenant.get("plan"), "birthday"):
+        raise HttpError(403, "PLAN_LOCKED:birthday")
     today = datetime.now(timezone.utc).date()
     md = f"{today.month:02d}-{today.day:02d}"
     with get_db() as db:
@@ -734,7 +790,9 @@ def load_tenant(slug=None, tenant_id=None):
         return None
     cfg = _merge_defaults(DEFAULT_CONFIG, json.loads(row["config"]))
     return {"id": row["id"], "slug": row["slug"], "name": row["name"],
-            "active": bool(row["active"]), "config": cfg, "created_at": row["created_at"]}
+            "active": bool(row["active"]), "config": cfg, "created_at": row["created_at"],
+            "plan": norm_plan(row["plan"] if "plan" in row.keys() else None),
+            "chain_group": (row["chain_group"] if "chain_group" in row.keys() else None)}
 
 
 def save_tenant_config(tenant_id, cfg):
@@ -1006,6 +1064,9 @@ def p_list_tenants(ctx):
             "revenue_total": round(revenue.get(r["id"], 0), 2),
             "notes": (r["notes"] if "notes" in r.keys() else None),
             "location": (r["location"] if "location" in r.keys() else None),
+            "plan": norm_plan(r["plan"] if "plan" in r.keys() else None),
+            "plan_info": PLANS[norm_plan(r["plan"] if "plan" in r.keys() else None)],
+            "chain_group": (r["chain_group"] if "chain_group" in r.keys() else None),
         })
     out.sort(key=lambda t: (-t["customers"], t["created_at"]))
     return {"tenants": out}
@@ -1019,6 +1080,8 @@ def p_create_tenant(ctx):
     if len(admin_password) < 4:
         raise HttpError(400, "La contraseña debe tener al menos 4 caracteres")
     template = b.get("template") or "restaurante"
+    plan = norm_plan(b.get("plan"))
+    chain = clean_chain(b.get("chain_group")) if plan == "cadena" else None
 
     base_slug = slugify(b.get("slug") or name)
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))  # deep copy
@@ -1034,8 +1097,8 @@ def p_create_tenant(ctx):
         while db.execute("SELECT 1 FROM tenants WHERE slug = ?", (slug,)).fetchone():
             slug = f"{base_slug}-{n}"
             n += 1
-        cur = db.execute("INSERT INTO tenants (slug, name, active, config, created_at) VALUES (?,?,?,?,?)",
-                         (slug, name, 1, json.dumps(cfg, ensure_ascii=False), now_iso()))
+        cur = db.execute("INSERT INTO tenants (slug, name, active, config, plan, chain_group, created_at) VALUES (?,?,?,?,?,?,?)",
+                         (slug, name, 1, json.dumps(cfg, ensure_ascii=False), plan, chain, now_iso()))
         tid = cur.lastrowid
         db.execute("INSERT INTO admin_users (tenant_id, username, password_hash, created_at) VALUES (?,?,?,?)",
                    (tid, admin_user, hash_password(admin_password), now_iso()))
@@ -1062,6 +1125,18 @@ def p_update_tenant(ctx):
         if "location" in b:
             db.execute("UPDATE tenants SET location = ? WHERE id = ?",
                        (_clean_text(b.get("location"), 200) or None, tid))
+        if "plan" in b:
+            newplan = norm_plan(b.get("plan"))
+            db.execute("UPDATE tenants SET plan = ? WHERE id = ?", (newplan, tid))
+            # si deja de ser Cadena, ya no pertenece a ningún grupo
+            if newplan != "cadena":
+                db.execute("UPDATE tenants SET chain_group = NULL WHERE id = ?", (tid,))
+        if "chain_group" in b:
+            # solo se asigna grupo si el plan (nuevo o actual) es Cadena
+            cur_plan = norm_plan(b.get("plan") if "plan" in b else
+                                 (db.execute("SELECT plan FROM tenants WHERE id=?", (tid,)).fetchone() or {"plan": "pro"})["plan"])
+            val = clean_chain(b.get("chain_group")) if cur_plan == "cadena" else None
+            db.execute("UPDATE tenants SET chain_group = ? WHERE id = ?", (val, tid))
         if "active" in b:
             db.execute("UPDATE tenants SET active = ? WHERE id = ?", (1 if b["active"] else 0, tid))
             bl_row = db.execute("SELECT billing FROM tenants WHERE id = ?", (tid,)).fetchone()
@@ -1356,7 +1431,13 @@ def t_password(ctx):
 
 
 def t_get_config(ctx):
-    return ctx.tenant["config"]
+    cfg = dict(ctx.tenant["config"])
+    plan = norm_plan(ctx.tenant.get("plan"))
+    cfg["_plan"] = plan
+    cfg["_plan_info"] = PLANS[plan]
+    cfg["_caps"] = plan_caps(plan)
+    cfg["_chain"] = clean_chain(ctx.tenant.get("chain_group")) if plan == "cadena" else None
+    return cfg
 
 
 HEX_RE = re.compile(r"^#[0-9a-fA-F]{3,8}$")
@@ -1512,10 +1593,20 @@ def t_info(ctx):
 
 def t_public_config(ctx):
     cfg = ctx.tenant["config"]
+    plan = norm_plan(ctx.tenant.get("plan"))
+    caps = plan_caps(plan)
+    theme = cfg["theme"]
+    business = cfg["business"]
+    # Sin marca propia (plan Básico): el cliente ve el tema por defecto de Fidelia,
+    # no el logo ni los colores personalizados del restaurante.
+    if not caps["branding"]:
+        theme = dict(DEFAULT_CONFIG["theme"])
+        business = dict(business); business["logo_data"] = ""
     return {
-        "business": cfg["business"], "theme": cfg["theme"],
+        "business": business, "theme": theme,
         "features": cfg["features"], "texts": cfg["texts"], "levels": cfg["levels"],
         "rewards": [r for r in cfg["rewards"] if r.get("active")],
+        "_caps": caps,   # el cliente oculta lo que no aplique (p. ej. pedir cumpleaños)
     }
 
 
@@ -1917,6 +2008,8 @@ def t_redeem(ctx):
 
 
 def t_stats(ctx):
+    if not plan_allows(ctx.tenant.get("plan"), "stats"):
+        raise HttpError(403, "PLAN_LOCKED:stats")
     cfg = ctx.tenant["config"]
     tid = ctx.tenant["id"]
     with get_db() as db:
@@ -1945,7 +2038,43 @@ def t_stats(ctx):
     }
 
 
-def build_customers_csv(tenant):
+def t_chain_overview(ctx):
+    """Panel unificado de la cadena: totales sumados + datos por local.
+    Solo para restaurantes de plan Cadena que pertenezcan a un grupo."""
+    plan = norm_plan(ctx.tenant.get("plan"))
+    key = chain_key(ctx.tenant.get("chain_group"))
+    if plan != "cadena" or not key:
+        raise HttpError(403, "PLAN_LOCKED:chain")
+    cur_symbol = ctx.tenant["config"]["business"]["currency_symbol"] or "€"
+    locals_out = []
+    tot = {"customers": 0, "spent": 0.0, "xp": 0, "visits": 0, "redemptions": 0, "new_last_30": 0}
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    with get_db() as db:
+        rows = db.execute("SELECT id, slug, name, active, chain_group FROM tenants").fetchall()
+        group = [r for r in rows if chain_key(r["chain_group"]) == key]
+        for t in group:
+            tid = t["id"]
+            c = db.execute("SELECT COUNT(*) c FROM customers WHERE tenant_id=? AND active=1", (tid,)).fetchone()["c"]
+            sp = db.execute("SELECT COALESCE(SUM(total_spent),0) s FROM customers WHERE tenant_id=? AND active=1", (tid,)).fetchone()["s"]
+            xp = db.execute("SELECT COALESCE(SUM(xp),0) s FROM customers WHERE tenant_id=? AND active=1", (tid,)).fetchone()["s"]
+            vi = db.execute("SELECT COALESCE(SUM(visits),0) s FROM customers WHERE tenant_id=? AND active=1", (tid,)).fetchone()["s"]
+            rd = db.execute("SELECT COUNT(*) c FROM redemptions r JOIN customers c2 ON c2.id=r.customer_id WHERE c2.tenant_id=?", (tid,)).fetchone()["c"]
+            n30 = db.execute("SELECT COUNT(*) c FROM customers WHERE tenant_id=? AND created_at>=?", (tid, since)).fetchone()["c"]
+            locals_out.append({
+                "slug": t["slug"], "name": t["name"], "active": bool(t["active"]),
+                "customers": c, "spent": round(sp, 2), "xp": xp, "visits": vi,
+                "redemptions": rd, "new_last_30": n30,
+                "is_current": (tid == ctx.tenant["id"]),
+            })
+            tot["customers"] += c; tot["spent"] += sp; tot["xp"] += xp
+            tot["visits"] += vi; tot["redemptions"] += rd; tot["new_last_30"] += n30
+    tot["spent"] = round(tot["spent"], 2)
+    locals_out.sort(key=lambda x: (-x["spent"], -x["customers"], x["name"]))
+    return {
+        "chain_name": clean_chain(ctx.tenant.get("chain_group")),
+        "locals": locals_out, "totals": tot, "currency": cur_symbol,
+        "count": len(locals_out),
+    }
     import csv, io
     cfg = tenant["config"]
     buf = io.StringIO()
@@ -2021,6 +2150,7 @@ TENANT_ROUTES = [
     ("POST",   r"/api/customers/(?P<cid>\d+)/redeem", t_redeem, True),
     ("GET",    r"/api/birthdays",   t_birthdays,      True),
     ("GET",    r"/api/stats",       t_stats,          True),
+    ("GET",    r"/api/chain/overview", t_chain_overview, True),
 ]
 P_COMPILED = [(m, re.compile("^" + pat + "$"), fn, auth) for (m, pat, fn, auth) in PLATFORM_ROUTES]
 T_COMPILED = [(m, re.compile("^" + pat + "$"), fn, auth) for (m, pat, fn, auth) in TENANT_ROUTES]
@@ -2038,8 +2168,8 @@ def tenant_manifest(tenant, admin=False):
     name = tenant["config"]["business"]["name"]
     theme = tenant["config"]["theme"]["primary"]
     return {
-        "name": (f"{name} · Gestión" if admin else name),
-        "short_name": ("Gestión" if admin else name[:12]),
+        "name": "Fidelia",
+        "short_name": "Fidelia",
         "start_url": f"/r/{tenant['slug']}/admin" if admin else f"/r/{tenant['slug']}/",
         "scope": f"/r/{tenant['slug']}/",
         "display": "standalone",

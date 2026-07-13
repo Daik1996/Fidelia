@@ -73,13 +73,43 @@ function drawRevChart(months){
 function renderTenants(){
   const box=$('#tenants');
   if(!TENANTS.length){ box.innerHTML='<div class="empty">Aún no hay restaurantes. Crea el primero con «＋ Nuevo restaurante».</div>'; return; }
-  box.innerHTML = TENANTS.map(t=>`
-    <div class="card tcard pay-${t.pay_state}">
+  // Agrupar por cadena (mismo nombre, sin distinguir mayúsculas). Grupos de 2+ locales se enmarcan juntos.
+  const ckey = s => (s||'').trim().toLowerCase();
+  const groups = new Map();   // clave -> {name, items[]}
+  const singles = [];
+  for(const t of TENANTS){
+    const k = (t.plan==='cadena' && t.chain_group) ? ckey(t.chain_group) : '';
+    if(k){ if(!groups.has(k)) groups.set(k,{name:t.chain_group,items:[]}); groups.get(k).items.push(t); }
+    else singles.push(t);
+  }
+  const chunks=[];
+  // Primero las cadenas (con 2+ locales van en marco; con 1 local se tratan como suelto)
+  for(const {name,items} of groups.values()){
+    if(items.length>=2){
+      const tot=items.reduce((a,t)=>({cust:a.cust+(t.customers||0),rev:a.rev+(t.revenue_total||0)}),{cust:0,rev:0});
+      chunks.push(`<div class="chain-wrap">
+        <div class="chain-head">
+          <div class="chain-title">👑 ${esc(name)} <span class="chain-count">${items.length} locales</span></div>
+          <div class="chain-tot">${tot.cust} clientes · <span style="color:var(--gold)">${fmtEUR(tot.rev)} €</span> facturado</div>
+        </div>
+        <div class="chain-grid">${items.map(tenantCard).join('')}</div>
+      </div>`);
+    } else { singles.push(items[0]); }
+  }
+  // Luego los locales sueltos, en la rejilla normal
+  if(singles.length) chunks.push(`<div class="tgrid-inner">${singles.map(tenantCard).join('')}</div>`);
+  box.innerHTML = chunks.join('');
+}
+function tenantCard(t){
+  const pl=t.plan_info||{label:'Pro',color:'#8d4470',color2:'#c06a9e',emoji:'⭐',price:69};
+  return `
+    <div class="card tcard pay-${t.pay_state}" style="border-left:5px solid ${pl.color}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div style="min-width:0">
-          <div class="name" style="display:flex;align-items:center;gap:8px">
+          <div class="name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="width:13px;height:13px;border-radius:4px;background:${t.primary};flex:none"></span>
-            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</span></div>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</span>
+            <span class="plan-badge" style="background:linear-gradient(135deg,${pl.color},${pl.color2});" title="Plan ${esc(pl.label)} · ${fmtEUR(pl.price)} €/mes">${pl.emoji} ${esc(pl.label)}</span></div>
           <div class="sub" style="margin-top:3px">/r/${t.slug}${t.setup_done?'':' · <strong style="color:var(--gold)">sin configurar</strong>'}${t.active?'':' · <strong style="color:var(--bad)">suspendido</strong>'}</div>
           <div style="margin-top:8px">${payChip(t)}</div>
           <div class="sub" style="margin-top:6px"><span style="color:var(--ink);font-weight:700">${fmtEUR(t.price)} €/mes</span>
@@ -106,7 +136,7 @@ function renderTenants(){
         <button class="btn btn-ghost btn-sm" style="flex:1" onclick="tenantCustomers(${t.id})">Clientes</button>
         <button class="btn btn-ghost btn-sm" style="flex:1" onclick="editForm(${t.id})">Gestionar</button>
       </div>
-    </div>`).join('');
+    </div>`;
 }
 function payChip(t){
   if(t.pay_state==='paid') return `<span style="color:var(--ok);font-weight:700;font-size:13px">● Pagado${t.billing.paid_until?' hasta '+fdate(t.billing.paid_until):''}</span>`;
@@ -162,6 +192,20 @@ async function createForm(){
           <a href="#" onclick="event.preventDefault();$('#nt-pass').value=genPass()" style="color:var(--plum);font-weight:600"> · generar otra</a></label>
         <input id="nt-pass" value="${genPass()}" autocomplete="off"></div>
     </div>
+    <div class="field"><label>Plan contratado</label>
+      <div id="nt-plans" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="plan-pick" data-plan="basico" onclick="pickPlan('basico')">
+          <div class="pp-emoji">◾</div><div class="pp-name">Básico</div><div class="pp-price">39€<span>/mes</span></div></div>
+        <div class="plan-pick sel" data-plan="pro" onclick="pickPlan('pro')">
+          <div class="pp-emoji">⭐</div><div class="pp-name">Pro</div><div class="pp-price">69€<span>/mes</span></div></div>
+        <div class="plan-pick" data-plan="cadena" onclick="pickPlan('cadena')">
+          <div class="pp-emoji">👑</div><div class="pp-name">Cadena</div><div class="pp-price">129€<span>/mes</span></div></div>
+      </div>
+      <input type="hidden" id="nt-plan" value="pro"></div>
+    <div class="field" id="nt-chain-wrap" style="display:none">
+      <label>👑 Nombre de la cadena <span class="sub">(agrupa varios locales de la misma marca)</span></label>
+      <input id="nt-chain" maxlength="60" placeholder="Ej. Grupo Sabor" autocomplete="off">
+      <div class="sub" style="margin-top:4px">Escribe el mismo nombre en cada local del grupo para unirlos.</div></div>
     <div class="field"><label>Tipo de negocio (niveles y recompensas ya calibrados)</label>
       <select id="nt-tpl" onchange="ntPreview()">
         ${_TPLS.map(t=>`<option value="${t.key}">${esc(t.label)} — ${esc(t.desc)}</option>`).join('')}
@@ -171,6 +215,11 @@ async function createForm(){
     <button class="btn btn-primary" style="width:100%" onclick="createTenant()">Crear restaurante</button>
     <p id="nt-err" class="sub" style="color:var(--bad);margin-top:10px"></p>`);
   ntPreview();
+}
+function pickPlan(p){
+  $('#nt-plan').value = p;
+  document.querySelectorAll('#nt-plans .plan-pick').forEach(el=>el.classList.toggle('sel', el.dataset.plan===p));
+  const w=$('#nt-chain-wrap'); if(w) w.style.display = (p==='cadena') ? '' : 'none';
 }
 function ntAuto(){
   const name=$('#nt-name').value.trim();
@@ -190,7 +239,8 @@ async function createTenant(){
   try{
     const name=$('#nt-name').value.trim(), user=$('#nt-user').value.trim(), pass=$('#nt-pass').value.trim();
     const r = await api('/api/platform/tenants',{method:'POST',body:{
-      name, admin_user:user, admin_password:pass, template:$('#nt-tpl').value }});
+      name, admin_user:user, admin_password:pass, template:$('#nt-tpl').value, plan:$('#nt-plan').value,
+      chain_group: ($('#nt-plan').value==='cadena' ? ($('#nt-chain')?.value.trim()||'') : '') }});
     closeModal(); toast('Restaurante creado','ok');
     await loadAll();
     handoffData(r.slug, r.name, user, pass);
@@ -257,6 +307,19 @@ function editForm(id){
       <div class="sub">/r/${t.slug} · creado ${fdate(t.created_at)}</div></div>
     <span class="close" onclick="closeModal()">×</span></div>
     <div class="field"><label>Nombre</label><input id="ed-name" value="${esc(t.name)}"></div>
+    <div class="field"><label>Plan contratado</label>
+      <div id="ed-plans" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="plan-pick ${t.plan==='basico'?'sel':''}" data-plan="basico" onclick="pickEdPlan('basico')">
+          <div class="pp-emoji">◾</div><div class="pp-name">Básico</div><div class="pp-price">39€<span>/mes</span></div></div>
+        <div class="plan-pick ${t.plan==='pro'?'sel':''}" data-plan="pro" onclick="pickEdPlan('pro')">
+          <div class="pp-emoji">⭐</div><div class="pp-name">Pro</div><div class="pp-price">69€<span>/mes</span></div></div>
+        <div class="plan-pick ${t.plan==='cadena'?'sel':''}" data-plan="cadena" onclick="pickEdPlan('cadena')">
+          <div class="pp-emoji">👑</div><div class="pp-name">Cadena</div><div class="pp-price">129€<span>/mes</span></div></div>
+      </div>
+      <input type="hidden" id="ed-plan" value="${esc(t.plan||'pro')}"></div>
+    <div class="field" id="ed-chain-wrap" style="display:${t.plan==='cadena'?'':'none'}">
+      <label>👑 Nombre de la cadena <span class="sub">(mismo nombre en cada local para agruparlos)</span></label>
+      <input id="ed-chain" maxlength="60" value="${esc(t.chain_group||'')}" placeholder="Ej. Grupo Sabor" autocomplete="off"></div>
     <div class="field"><label>📝 Notas para ti (teléfono, contacto, acuerdos… solo las ves tú)</label>
       <input id="ed-notes" maxlength="300" value="${esc(t.notes||'')}" placeholder="Ej. Dueño: Paco · 612 345 678 · paga en efectivo"></div>
     <div class="field"><label>📍 Ubicación (dirección; añade un enlace al mapa en la tarjeta)</label>
@@ -278,6 +341,11 @@ function editForm(id){
       <div class="sub" style="margin:4px 0 10px">Eliminar borra PARA SIEMPRE el restaurante, sus ${t.customers} cliente(s) y todo su historial. Si solo quiere dejar de usarlo, usa «Suspender».</div>
       <button class="btn btn-danger btn-sm" onclick="deleteForm(${t.id})">Eliminar restaurante…</button>
     </div>`);
+}
+function pickEdPlan(p){
+  $('#ed-plan').value = p;
+  document.querySelectorAll('#ed-plans .plan-pick').forEach(el=>el.classList.toggle('sel', el.dataset.plan===p));
+  const w=$('#ed-chain-wrap'); if(w) w.style.display = (p==='cadena') ? '' : 'none';
 }
 function deleteForm(id){
   const t = TENANTS.find(x=>x.id===id); if(!t) return;
@@ -301,7 +369,9 @@ async function doDeleteTenant(id){
 async function saveTenant(id){
   try{
     const body={ name:$('#ed-name').value.trim(),
-                 notes:$('#ed-notes').value.trim(), location:$('#ed-loc').value.trim() };
+                 notes:$('#ed-notes').value.trim(), location:$('#ed-loc').value.trim(),
+                 plan:$('#ed-plan').value,
+                 chain_group: ($('#ed-plan').value==='cadena' ? ($('#ed-chain')?.value.trim()||'') : '') };
     const pw=$('#ed-pass').value; if(pw) body.reset_admin_password=pw;
     await api('/api/platform/tenants/'+id,{method:'PUT',body});
     closeModal(); toast('Guardado','ok'); loadAll();

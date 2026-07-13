@@ -9,15 +9,19 @@ let VIEW = 'dashboard';
 // Capacidades según el plan contratado (las rellena el backend en /api/config)
 const caps = c => !!(CONFIG && CONFIG._caps && CONFIG._caps[c]);
 const planLabel = () => (CONFIG && CONFIG._plan_info && CONFIG._plan_info.label) || 'tu plan';
-// Panel "bloqueado" reutilizable: se muestra al restaurante en lugar de la función premium
-function lockCard(titulo, desc, planNecesario){
+// Plan mínimo que incluye cada capacidad (para el mensaje de "mejora a…")
+const CAP_MIN_PLAN = { stats:'Pro', birthday:'Pro', branding:'Pro' };
+// Panel "bloqueado" reutilizable. Recibe la CAPACIDAD; si ya se tiene, devuelve '' (no se muestra).
+function lockCard(cap, titulo, desc){
+  if(caps(cap)) return '';                       // ya desbloqueado (p. ej. Pro o Cadena): nada que bloquear
+  const need = CAP_MIN_PLAN[cap] || 'Pro';
   return `<div class="card section-card" style="border:1.5px dashed var(--line);text-align:center;padding:26px 20px;opacity:.95">
     <div style="font-size:32px">🔒</div>
     <h3 style="margin:8px 0 4px">${titulo}</h3>
     <div class="hint" style="max-width:420px;margin:0 auto 12px">${desc}</div>
     <div style="display:inline-block;background:linear-gradient(135deg,#8d4470,#c06a9e);color:#fff;
       font-weight:700;font-size:13px;padding:8px 16px;border-radius:22px">
-      Disponible en el plan ${planNecesario} ✨</div>
+      Disponible desde el plan ${need} ✨</div>
     <div class="hint" style="margin-top:10px">Habla con tu proveedor de Fidelia para mejorar tu plan.</div>
   </div>`;
 }
@@ -243,9 +247,8 @@ async function renderDashboard(){
         </tbody></table>
       </div>
     </div>`
-    : lockCard('Estadísticas de tu negocio',
-        'Consulta cuántos clientes tienes, cuánto has facturado, tu distribución por niveles y tu top de clientes más fieles.',
-        'Pro');
+    : lockCard('stats', 'Estadísticas de tu negocio',
+        'Consulta cuántos clientes tienes, cuánto has facturado, tu distribución por niveles y tu top de clientes más fieles.');
   $('#dash-body').innerHTML = extras + `
     <div class="card section-card" style="border-left:4px solid var(--gold)">
       <h3>⚡ Cobro rápido</h3>
@@ -659,9 +662,8 @@ function progBusiness(){
           <div style="background:${t.primary};color:#fff;padding:18px;font-family:'Bricolage Grotesque';font-weight:800;font-size:20px">${esc(b.name)}</div>
           <div style="padding:16px;background:#fff"><span class="badge" style="background:${t.accent};color:#3a2600">Recompensa disponible</span></div>
         </div></div>
-    </div>`:lockCard('Marca propia: logo y colores',
-        'Sube tu logotipo y pon los colores y la tipografía de tu marca. Tus clientes verán la app con la identidad de tu negocio en lugar del diseño estándar.',
-        'Pro')}
+    </div>`:lockCard('branding', 'Marca propia: logo y colores',
+        'Sube tu logotipo y pon los colores y la tipografía de tu marca. Tus clientes verán la app con la identidad de tu negocio en lugar del diseño estándar.')}
     <div class="card section-card">
       <h3>Mensajes</h3><div class="hint">Textos que aparecen en la pantalla de tus clientes.</div>
       <div class="field"><label>Mensaje de bienvenida</label><textarea rows="2" ${bind('texts.welcome')}>${esc(x.welcome)}</textarea></div>

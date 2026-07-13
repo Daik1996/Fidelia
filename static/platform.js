@@ -139,9 +139,11 @@ function tenantCard(t){
     </div>`;
 }
 function payChip(t){
-  if(t.pay_state==='paid') return `<span style="color:var(--ok);font-weight:700;font-size:13px">● Pagado${t.billing.paid_until?' hasta '+fdate(t.billing.paid_until):''}</span>`;
-  if(t.pay_state==='unpaid') return `<span style="color:var(--bad);font-weight:700;font-size:13px">● Sin pagar${t.billing.paid_until?' (venció '+fdate(t.billing.paid_until)+')':''}</span>`;
-  return `<span style="color:var(--muted);font-weight:600;font-size:13px">○ Sin cobro configurado</span>`;
+  if(t.pay_state==='paid') return `<span class="pay-pill paid">
+    <span class="pay-dot"></span> Pagado${t.billing.paid_until?' · activo hasta '+fdate(t.billing.paid_until):''}</span>`;
+  if(t.pay_state==='unpaid') return `<span class="pay-pill unpaid">
+    <span class="pay-dot"></span> Sin pagar${t.billing.paid_until?' · venció '+fdate(t.billing.paid_until):''}</span>`;
+  return `<span class="pay-pill none"><span class="pay-dot"></span> Sin cobro configurado</span>`;
 }
 
 /* ---------- Notas y ubicación del restaurante (solo para mí) ---------- */

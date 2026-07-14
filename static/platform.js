@@ -599,10 +599,33 @@ async function loadTC(){
           <td>${c.active?'<span style="color:var(--ok)">Activo</span>':'<span style="color:var(--bad)">Bloqueado</span>'}</td>
           <td style="white-space:nowrap;padding-right:10px">
             <button class="btn btn-ghost btn-sm" onclick="tcAdjust(${c.id},'${esc(c.name)}')">± pts</button>
+            <button class="btn btn-ghost btn-sm" title="${c.has_pin?'Tiene PIN · cambiar o quitar':'Sin PIN · establecer'}" onclick="tcPin(${c.id},'${esc(c.name)}',${c.has_pin?'true':'false'})">${c.has_pin?'🔒':'🔓'}</button>
             <button class="btn ${c.active?'btn-danger':'btn-ghost'} btn-sm" onclick="tcBan(${c.id},${c.active?'true':'false'})">${c.active?'⛔':'✓'}</button>
           </td></tr>`).join('')}</tbody></table>
       <div class="sub" style="padding:10px 12px">${d.total} cliente(s)</div>`;
   }catch(e){ $('#tc-list').innerHTML=`<div class="empty">${esc(e.message)}</div>`; }
+}
+async function tcPin(cid,name,hasPin){
+  if(hasPin){
+    const v=prompt(`PIN de ${name}.\n\nEscribe un PIN nuevo (4-6 números) para cambiarlo,\no deja VACÍO y acepta para QUITARLO.`,'');
+    if(v===null) return;
+    const pin=(v||'').replace(/\D/g,'');
+    try{
+      if(!pin){ await api(`/api/platform/tenants/${_TC.tid}/customers/${cid}/pin`,{method:'POST',body:{clear_pin:true}}); toast('PIN quitado','ok'); }
+      else{ if(pin.length<4||pin.length>6){ toast('El PIN debe tener 4-6 números','bad'); return; }
+        await api(`/api/platform/tenants/${_TC.tid}/customers/${cid}/pin`,{method:'POST',body:{set_pin:pin}}); toast('PIN cambiado','ok'); }
+      loadTC();
+    }catch(e){ toast(e.message,'bad'); }
+  }else{
+    const v=prompt(`Establecer PIN para ${name} (4-6 números):`,'');
+    if(v===null) return;
+    const pin=(v||'').replace(/\D/g,'');
+    if(pin.length<4||pin.length>6){ toast('El PIN debe tener 4-6 números','bad'); return; }
+    try{
+      await api(`/api/platform/tenants/${_TC.tid}/customers/${cid}/pin`,{method:'POST',body:{set_pin:pin}});
+      toast('PIN establecido','ok'); loadTC();
+    }catch(e){ toast(e.message,'bad'); }
+  }
 }
 async function tcAdjust(cid,name){
   const v=prompt('Ajustar puntos de '+name+' (usa negativo para restar):','0');

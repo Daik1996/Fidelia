@@ -125,7 +125,7 @@ async function boot(){
   const showChain = CONFIG._plan==='cadena' && !!CONFIG._chain;
   $('#nav-chain')?.classList.toggle('hide', !showChain);
   if(!CONFIG.setup_done){ showSetupWizard(); return; }
-  setView('dashboard');
+  setView('charge');
 }
 
 /* ================= ASISTENTE DE CONFIGURACIÓN INICIAL ================= */
@@ -165,7 +165,7 @@ async function finishSetup(){
   try{
     const r = await api('/api/setup',{method:'POST',body});
     CONFIG = r.config; CUR = CONFIG.business.currency_symbol || '€';
-    closeModal(); toast('¡Listo! Bienvenido a Fidelia','ok'); setView('dashboard');
+    closeModal(); toast('¡Listo! Bienvenido a Fidelia','ok'); setView('charge');
   }catch(e){ $('#sw-err').textContent = e.message; }
 }
 let PENDING_CODE = null;
@@ -180,8 +180,37 @@ function setView(v){
   $('#sidebar')?.classList.remove('open');
   $('#nav-backdrop')?.classList.remove('show');
   $$('.nav-item[data-view]').forEach(n=>n.classList.toggle('active', n.dataset.view===v));
-  ({dashboard:renderDashboard, customers:renderCustomers, register:renderRegister,
-    program:renderProgram, ranking:renderRanking, chain:renderChain, settings:renderSettings}[v] || renderDashboard)();
+  ({charge:renderCharge, dashboard:renderDashboard, customers:renderCustomers, register:renderRegister,
+    program:renderProgram, ranking:renderRanking, chain:renderChain, settings:renderSettings}[v] || renderCharge)();
+}
+
+/* ================= SUMAR PUNTOS (vista principal, ultra simple) ================= */
+async function renderCharge(){
+  const m = $('#main');
+  m.innerHTML = `<div class="page-head"><div><h1>Sumar puntos</h1>
+    <div class="sub">Pon el teléfono del cliente y lo que ha gastado. Nada más.</div></div></div>
+    <div class="card section-card charge-card">
+      <div class="charge-row">
+        <div class="charge-field">
+          <label>📱 Teléfono del cliente</label>
+          <input id="qk-q" inputmode="tel" autocomplete="off" placeholder="612 345 678"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();document.querySelector('#qk-amt').focus();}">
+        </div>
+        <div class="charge-field charge-amt">
+          <label>💶 Ha gastado (${CUR})</label>
+          <input id="qk-amt" type="number" step="0.01" inputmode="decimal" placeholder="0.00"
+            onkeydown="if(event.key==='Enter')quickCharge()">
+        </div>
+      </div>
+      <label class="charge-visit"><input type="checkbox" id="qk-visit" checked> Contar la visita</label>
+      <button class="btn btn-primary charge-btn" onclick="quickCharge()">✓ Sumar puntos</button>
+      <div id="qk-out" style="margin-top:14px"></div>
+    </div>
+    <p class="hint" style="text-align:center;margin-top:14px">
+      Si el cliente es nuevo, se le da de alta al momento. ¿Buscar por nombre? Ve a <a onclick="setView('customers')" style="cursor:pointer;color:var(--plum);font-weight:600">Clientes</a>.
+    </p>`;
+  setTimeout(()=>document.querySelector('#qk-q')?.focus(), 60);
+  applyPendingCode();
 }
 
 /* ================= DASHBOARD ================= */
@@ -250,19 +279,10 @@ async function renderDashboard(){
     : lockCard('stats', 'Estadísticas de tu negocio',
         'Consulta cuántos clientes tienes, cuánto has facturado, tu distribución por niveles y tu top de clientes más fieles.');
   $('#dash-body').innerHTML = extras + `
-    <div class="card section-card" style="border-left:4px solid var(--gold)">
-      <h3>⚡ Cobro rápido</h3>
-      <div class="hint">Teléfono o código del cliente + importe de la cuenta. Nada más.</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-        <div class="field" style="margin:0;flex:1;min-width:170px"><label>Teléfono o código</label>
-          <input id="qk-q" placeholder="612345678" onkeydown="if(event.key==='Enter')quickCharge()"></div>
-        <div class="field" style="margin:0;width:130px"><label>Importe (${CUR})</label>
-          <input id="qk-amt" type="number" step="0.01" placeholder="0.00" onkeydown="if(event.key==='Enter')quickCharge()"></div>
-        <label style="display:flex;gap:7px;align-items:center;font-size:13.5px;font-weight:600;color:var(--muted);padding-bottom:9px">
-          <input type="checkbox" id="qk-visit" checked style="width:auto"> visita</label>
-        <button class="btn btn-primary" style="height:40px" onclick="quickCharge()">Sumar puntos</button>
-      </div>
-      <div id="qk-out" style="margin-top:10px"></div>
+    <div class="card section-card" style="border-left:4px solid var(--gold);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div><h3 style="margin:0">⚡ ¿Vas a cobrar a un cliente?</h3>
+        <div class="hint">Suma sus puntos en 2 segundos: teléfono + importe.</div></div>
+      <button class="btn btn-primary" onclick="setView('charge')">Sumar puntos →</button>
     </div>
     ${statsBlock}`;
   applyPendingCode();
@@ -385,6 +405,13 @@ function customerForm(c=null){
       <div class="field"><label>Apodo en el ranking <span class="sub">(único en tu local)</span></label>
         <input id="c-nick" maxlength="20" placeholder="Ej. ElDelFondo" value="${esc(c?.nickname||'')}"></div>
       <div class="field" style="grid-column:1/-1"><label>Notas</label><input id="c-notes" value="${esc(c?.notes||'')}"></div>
+      ${c?`<div class="field" style="grid-column:1/-1;border-top:1px solid var(--line);padding-top:12px">
+        <label>🔒 PIN de acceso del cliente</label>
+        <div class="hint" style="margin-bottom:6px">${c.has_pin?'Este cliente ya tiene un PIN. Escribe uno nuevo para cambiarlo, o pulsa «Quitar».':'Ponle un PIN (4-6 números) para que solo él vea sus puntos desde casa.'}</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="c-pin" inputmode="numeric" maxlength="6" placeholder="${c.has_pin?'Nuevo PIN (opcional)':'PIN (4-6 números)'}" style="max-width:200px;letter-spacing:3px">
+          ${c.has_pin?`<button type="button" class="btn btn-ghost btn-sm" onclick="clearCustomerPin(${c.id})">Quitar PIN</button>`:''}
+        </div></div>`:''}
     </div>
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
@@ -395,11 +422,20 @@ async function saveCustomer(id){
   const body={name:$('#c-name').value.trim(), phone:$('#c-phone').value.trim(),
     email:$('#c-email').value.trim(), birthday:($('#c-bday')?.value||''), notes:$('#c-notes').value.trim(),
     nickname:$('#c-nick').value.trim()};
+  const pin=($('#c-pin')?.value||'').replace(/\D/g,'');
+  if(pin){ if(pin.length<4||pin.length>6){ toast('El PIN debe tener entre 4 y 6 números','bad'); return; } body.set_pin=pin; }
   if(!body.name){ toast('El nombre es obligatorio','bad'); return; }
   try{
     if(id) await api('/api/customers/'+id,{method:'PUT',body});
     else await api('/api/customers',{method:'POST',body});
     closeModal(); toast('Cliente guardado','ok');
+    if(VIEW==='customers') loadCustomers(); else customerDetail(id);
+  }catch(e){ toast(e.message,'bad'); }
+}
+async function clearCustomerPin(id){
+  try{
+    await api('/api/customers/'+id,{method:'PUT',body:{name:$('#c-name').value.trim(), clear_pin:true}});
+    toast('PIN quitado','ok'); closeModal();
     if(VIEW==='customers') loadCustomers(); else customerDetail(id);
   }catch(e){ toast(e.message,'bad'); }
 }

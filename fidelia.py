@@ -346,6 +346,8 @@ def init_db():
         if "xp_total" not in ccols:
             db.execute("ALTER TABLE customers ADD COLUMN xp_total INTEGER")
             db.execute("UPDATE customers SET xp_total = xp WHERE xp_total IS NULL")
+        if "pin_hash" not in ccols:
+            db.execute("ALTER TABLE customers ADD COLUMN pin_hash TEXT")
         tcols = [r["name"] for r in db.execute("PRAGMA table_info(tenants)").fetchall()]
         if "notes" not in tcols:
             db.execute("ALTER TABLE tenants ADD COLUMN notes TEXT")
@@ -764,6 +766,14 @@ def verify_password(password, stored):
         return False
 
 
+def clean_pin(v):
+    """PIN de cliente: 4 a 6 dígitos. Devuelve el string de dígitos o lanza error."""
+    s = re.sub(r"\D", "", str(v or ""))
+    if len(s) < 4 or len(s) > 6:
+        raise HttpError(400, "El PIN debe tener entre 4 y 6 números")
+    return s
+
+
 def slugify(name):
     s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
     s = re.sub(r"[^a-zA-Z0-9]+", "-", s).strip("-").lower()
@@ -869,6 +879,7 @@ def customer_public(row, cfg):
         "active": bool(row["active"]), "created_at": row["created_at"],
         "level": current, "next_level": nxt,
         "xp_to_next": (max(0, nxt["min_xp"] - xp_total) if nxt else 0), "progress_pct": progress,
+        "has_pin": bool(row["pin_hash"]) if "pin_hash" in row.keys() else False,
     }
 
 
@@ -1200,6 +1211,21 @@ def p_tenant_adjust(ctx):
 def p_tenant_ban(ctx):
     t = _p_tenant(ctx)
     return set_customer_ban(t, as_int(ctx.params["cid"]), bool(ctx.body.get("banned")))
+
+
+def p_tenant_customer_pin(ctx):
+    """El propietario (Dani) establece o quita el PIN de un cliente de un restaurante."""
+    t = _p_tenant(ctx)
+    cid = as_int(ctx.params["cid"])
+    with get_db() as db:
+        _tenant_customer(db, t["id"], cid)
+        if ctx.body.get("clear_pin"):
+            db.execute("UPDATE customers SET pin_hash=NULL WHERE id=?", (cid,))
+        else:
+            db.execute("UPDATE customers SET pin_hash=? WHERE id=?",
+                       (hash_password(clean_pin(ctx.body.get("set_pin"))), cid))
+        row = db.execute("SELECT * FROM customers WHERE id=?", (cid,)).fetchone()
+    return customer_public(row, t["config"])
 
 
 def p_delete_tenant(ctx):
@@ -1693,6 +1719,16 @@ def t_public_lookup(ctx):
                          (ctx.tenant["id"], norm_phone(q) or q, q.upper())).fetchone()
     if not row:
         raise HttpError(404, "No encontramos tu ficha. Pregunta en el local.")
+    # Seguridad: si el cliente protegió su cuenta con PIN, hay que introducirlo correctamente
+    pin_hash = row["pin_hash"] if "pin_hash" in row.keys() else None
+    if pin_hash:
+        pin = re.sub(r"\D", "", str(ctx.body.get("pin") or ""))
+        if not pin:
+            raise HttpError(401, "PIN_REQUIRED")
+        if not rate_limit(f"pin:{ctx.tenant['id']}:{row['id']}:{ctx.ip}", 6, 300):
+            raise HttpError(429, "Demasiados intentos. Espera unos minutos.")
+        if not verify_password(pin, pin_hash):
+            raise HttpError(401, "PIN_WRONG")
     data = customer_public(row, cfg)
     redeemable = []
     for rw in cfg["rewards"]:
@@ -1708,7 +1744,31 @@ def t_public_lookup(ctx):
         "level": data["level"], "next_level": data["next_level"],
         "xp_to_next": data["xp_to_next"], "progress_pct": data["progress_pct"],
         "nickname": data.get("nickname"),
+        "has_pin": bool(pin_hash),
     }, "rewards": redeemable}
+
+
+def t_public_set_pin(ctx):
+    """El cliente crea o cambia su PIN. Si ya tiene, debe indicar el actual."""
+    cfg = ctx.tenant["config"]
+    if not cfg["features"].get("self_lookup"):
+        raise HttpError(403, "No disponible")
+    if not rate_limit(f"setpin:{ctx.tenant['id']}:{ctx.ip}", 10, 600):
+        raise HttpError(429, "Demasiados intentos. Espera unos minutos.")
+    q = str(need(ctx.body, "query", "Falta el teléfono")).strip()
+    new_pin = clean_pin(ctx.body.get("new_pin"))
+    with get_db() as db:
+        row = db.execute("SELECT * FROM customers WHERE tenant_id=? AND active=1 AND (phone=? OR code=?)",
+                         (ctx.tenant["id"], norm_phone(q) or q, q.upper())).fetchone()
+        if not row:
+            raise HttpError(404, "No encontramos tu ficha")
+        cur_hash = row["pin_hash"] if "pin_hash" in row.keys() else None
+        if cur_hash:
+            cur = re.sub(r"\D", "", str(ctx.body.get("current_pin") or ""))
+            if not verify_password(cur, cur_hash):
+                raise HttpError(401, "PIN_WRONG")
+        db.execute("UPDATE customers SET pin_hash=? WHERE id=?", (hash_password(new_pin), row["id"]))
+    return {"ok": True}
 
 
 def t_public_ranking(ctx):
@@ -1881,13 +1941,19 @@ def t_update_customer(ctx):
     with get_db() as db:
         _tenant_customer(db, ctx.tenant["id"], cid)
         nickname = validate_nickname(db, ctx.tenant["id"], b.get("nickname"), exclude_customer_id=cid)
-        new_phone = norm_phone(b.get("phone"))
+        # Si no se envía 'phone', conservar el actual (no borrarlo). Si se envía, normalizar.
+        new_phone = norm_phone(b.get("phone")) if ("phone" in b) else (row_cur["phone"] if (row_cur := db.execute("SELECT phone FROM customers WHERE id=?", (cid,)).fetchone()) else None)
         if new_phone and db.execute("SELECT 1 FROM customers WHERE tenant_id=? AND phone=? AND id!=?",
                                     (ctx.tenant["id"], new_phone, cid)).fetchone():
             raise HttpError(409, "Ya existe otro cliente con ese teléfono")
         db.execute("UPDATE customers SET name=?, phone=?, email=?, birthday=?, notes=?, nickname=? WHERE id=?",
                    (name, new_phone, (b.get("email") or "").strip() or None,
                     b.get("birthday") or None, b.get("notes") or None, nickname, cid))
+        # PIN de acceso del cliente: el restaurante puede establecerlo o quitarlo
+        if b.get("clear_pin"):
+            db.execute("UPDATE customers SET pin_hash=NULL WHERE id=?", (cid,))
+        elif str(b.get("set_pin") or "").strip():
+            db.execute("UPDATE customers SET pin_hash=? WHERE id=?", (hash_password(clean_pin(b.get("set_pin"))), cid))
         row = db.execute("SELECT * FROM customers WHERE id = ?", (cid,)).fetchone()
     return customer_public(row, cfg)
 
@@ -2112,6 +2178,7 @@ PLATFORM_ROUTES = [
     ("GET",  r"/api/platform/tenants/(?P<tid>\d+)/customers", p_tenant_customers, True),
     ("POST", r"/api/platform/tenants/(?P<tid>\d+)/customers/(?P<cid>\d+)/adjust", p_tenant_adjust, True),
     ("POST", r"/api/platform/tenants/(?P<tid>\d+)/customers/(?P<cid>\d+)/ban", p_tenant_ban, True),
+    ("POST", r"/api/platform/tenants/(?P<tid>\d+)/customers/(?P<cid>\d+)/pin", p_tenant_customer_pin, True),
     ("GET",  r"/api/platform/billing/settings",  p_billing_settings_get,  True),
     ("POST", r"/api/platform/billing/settings",  p_billing_settings_post, True),
     ("GET",  r"/api/platform/tenants/(?P<tid>\d+)/billing", p_billing_get, True),
@@ -2136,6 +2203,7 @@ TENANT_ROUTES = [
     ("GET",    r"/api/public/ranking", t_public_ranking, False),
     ("GET",    r"/api/ranking",        t_ranking_data,   True),
     ("POST",   r"/api/public/lookup",  t_public_lookup,  False),
+    ("POST",   r"/api/public/set_pin",  t_public_set_pin, False),
     ("POST",   r"/api/public/nickname", t_public_nickname, False),
     ("GET",    r"/api/public/nickname/check", t_public_nickname_check, False),
     ("GET",    r"/api/customers/find", t_find_customer, True),

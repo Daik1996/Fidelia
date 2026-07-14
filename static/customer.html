@@ -62,6 +62,10 @@
   .rank-row.top .rank-n{background:var(--accent);color:#3a2600}
   .rank-xp{margin-left:auto;font-weight:700}
   .err{color:#c0392b;font-size:14px;margin-top:10px;text-align:center}
+  .sec-row{display:flex;flex-direction:column;gap:8px;align-items:flex-start;font-size:14px}
+  .linkbtn{background:none;border:none;color:var(--primary);font-weight:700;font-size:14px;cursor:pointer;padding:0;text-decoration:underline}
+  .pin-form{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .pin-form input{width:100%;margin-bottom:8px}
   .hide{display:none!important}
   .foot{text-align:center;color:var(--muted);font-size:12px;margin-top:30px}
 
@@ -99,6 +103,9 @@
     <h2 id="welcome-title">Tu club de fidelidad</h2>
     <p class="muted" id="lookup-help" style="margin-bottom:16px"></p>
     <input id="q" placeholder="Teléfono o código" autocomplete="off">
+    <input id="pin" class="hide" inputmode="numeric" maxlength="6" placeholder="PIN (4-6 números)"
+      autocomplete="off" style="letter-spacing:4px;text-align:center;font-size:20px"
+      onkeydown="if(event.key==='Enter')lookup()">
     <button class="btn" onclick="lookup()">Ver mis puntos</button>
     <p class="err hide" id="err"></p>
   </div>
@@ -125,6 +132,10 @@
     </div>
 
     <div class="section"><h3>Tus recompensas</h3><div id="m-rewards"></div></div>
+    <div class="section" style="border-top:1px solid var(--line);padding-top:14px">
+      <div id="m-security" class="sec-row"></div>
+      <div id="pin-dialog" class="hide" style="margin-top:10px"></div>
+    </div>
     <button class="btn" style="background:transparent;color:var(--muted);border:1px solid var(--line);margin-top:6px" onclick="forgetMe()">No soy yo · salir</button>
   </div>
 

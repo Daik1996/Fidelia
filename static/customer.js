@@ -48,7 +48,18 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
         const data = await api('/api/public/lookup',{method:'POST',body:{query:saved}});
         window._MYQ = saved;
         showCustomer(data);
-      }catch{ try{ localStorage.removeItem('fid_myq'); }catch{} }  // si ya no existe, olvidar
+      }catch(e){
+        const msg=(e&&e.message)||'';
+        if(msg==='PIN_REQUIRED'||msg==='PIN_WRONG'){
+          // cuenta protegida: precargar el teléfono y pedir el PIN
+          $('#q').value = saved;
+          $('#pin')?.classList.remove('hide');
+          $('#err').textContent='🔒 Escribe tu PIN para entrar.'; $('#err').classList.remove('hide');
+          setTimeout(()=>$('#pin')?.focus(),80);
+        }else{
+          try{ localStorage.removeItem('fid_myq'); }catch{}   // si ya no existe, olvidar
+        }
+      }
     }
   }
 })();
@@ -87,13 +98,26 @@ async function lookup(){
   const q = $('#q').value.trim();
   $('#err').classList.add('hide');
   if(!q){ return; }
+  const pinEl = $('#pin');
+  const body = {query:q};
+  if(pinEl && !pinEl.classList.contains('hide') && pinEl.value.trim()) body.pin = pinEl.value.trim();
   try{
-    const data = await api('/api/public/lookup',{method:'POST',body:{query:q}});
+    const data = await api('/api/public/lookup',{method:'POST',body});
     window._MYQ = q;
-    try{ localStorage.setItem('fid_myq', q); }catch{}   // recordar para próximas visitas
+    try{ localStorage.setItem('fid_myq', q); }catch{}
+    pinEl?.classList.add('hide'); if(pinEl) pinEl.value='';
     showCustomer(data);
   }catch(e){
-    $('#err').textContent = e.message; $('#err').classList.remove('hide');
+    const msg = (e && e.message) || '';
+    if(msg==='PIN_REQUIRED'){
+      pinEl.classList.remove('hide'); pinEl.focus();
+      $('#err').textContent = '🔒 Esta cuenta está protegida. Escribe tu PIN.'; $('#err').classList.remove('hide');
+    }else if(msg==='PIN_WRONG'){
+      pinEl.classList.remove('hide'); pinEl.value=''; pinEl.focus();
+      $('#err').textContent = 'PIN incorrecto. Inténtalo de nuevo.'; $('#err').classList.remove('hide');
+    }else{
+      $('#err').textContent = msg; $('#err').classList.remove('hide');
+    }
   }
 }
 
@@ -132,7 +156,56 @@ function showCustomer(data){
         <span class="cost">${r.cost_xp} XP</span>
       </div>
     </div>`).join('') : '<p class="muted">Aún no hay recompensas disponibles.</p>';
+  // Seguridad: crear o cambiar el PIN de acceso
+  window._HAS_PIN = !!c.has_pin;
+  const sec = $('#m-security');
+  if(sec){
+    sec.innerHTML = c.has_pin
+      ? `<span class="muted">🔒 Tu cuenta está protegida con PIN.</span>
+         <button class="linkbtn" onclick="pinDialog(true)">Cambiar PIN</button>`
+      : `<span class="muted">🔓 Tu cuenta no tiene PIN. Protégela para que nadie más vea tus puntos.</span>
+         <button class="linkbtn" onclick="pinDialog(false)">Crear PIN</button>`;
+  }
   window.scrollTo({top:0,behavior:'smooth'});
+}
+
+/* ---------- PIN de acceso del cliente ---------- */
+function pinDialog(hasPin){
+  const box = $('#pin-dialog');
+  if(!box) return;
+  box.classList.remove('hide');
+  box.innerHTML = `
+    <div class="pin-form">
+      <strong>${hasPin?'Cambiar tu PIN':'Crear un PIN de acceso'}</strong>
+      <p class="muted" style="margin:4px 0 10px">Un PIN de 4 a 6 números para que solo tú puedas ver tus puntos.</p>
+      ${hasPin?`<input id="pin-cur" inputmode="numeric" maxlength="6" placeholder="PIN actual" style="letter-spacing:4px;text-align:center">`:''}
+      <input id="pin-new" inputmode="numeric" maxlength="6" placeholder="PIN nuevo (4-6 números)" style="letter-spacing:4px;text-align:center">
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn" onclick="savePin(${hasPin})">Guardar</button>
+        <button class="btn btn-ghost" onclick="$('#pin-dialog').classList.add('hide')">Cancelar</button>
+      </div>
+      <p class="err hide" id="pin-err"></p>
+    </div>`;
+  setTimeout(()=>$(hasPin?'#pin-cur':'#pin-new')?.focus(),60);
+}
+async function savePin(hasPin){
+  const err=$('#pin-err'); err.classList.add('hide');
+  const nw=($('#pin-new').value||'').replace(/\D/g,'');
+  if(nw.length<4||nw.length>6){ err.textContent='El PIN debe tener entre 4 y 6 números.'; err.classList.remove('hide'); return; }
+  const body={query: window._MYQ, new_pin: nw};
+  if(hasPin) body.current_pin=($('#pin-cur').value||'').replace(/\D/g,'');
+  try{
+    await api('/api/public/set_pin',{method:'POST',body});
+      $('#pin-dialog').classList.add('hide');
+      window._HAS_PIN=true;
+    const sec=$('#m-security');
+    if(sec) sec.innerHTML=`<span class="muted">🔒 Tu cuenta está protegida con PIN.</span>
+      <button class="linkbtn" onclick="pinDialog(true)">Cambiar PIN</button>`;
+  }catch(e){
+    const m=(e&&e.message)||'';
+    err.textContent = m==='PIN_WRONG' ? 'El PIN actual no es correcto.' : m;
+    err.classList.remove('hide');
+  }
 }
 
 /* ---------- PWA: service worker + instalación ---------- */

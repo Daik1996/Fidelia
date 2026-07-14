@@ -50,7 +50,7 @@ async function loadAll(){
     <div class="card stat money"><div class="k">📅 Este mes</div><div class="v">${fmtEUR(rev.this_month)} €</div></div>
     <div class="card stat money"><div class="k">🔁 Recurrente (al mes)</div><div class="v">${fmtEUR(rev.mrr)} €</div>
       <div class="sub">${rev.paying_tenants} pagando</div></div>
-    <div class="card stat"><div class="k">Restaurantes</div><div class="v">${info.tenants}</div>
+    <div class="card stat"><div class="k">Negocios</div><div class="v">${info.tenants}</div>
       ${unpaid?`<div class="sub" style="color:var(--bad);font-weight:700">${unpaid} sin pagar</div>`:'<div class="sub" style="color:var(--ok)">todo al día</div>'}</div>
     <div class="card stat"><div class="k">Clientes totales</div><div class="v">${info.customers}</div></div>`;
   drawRevChart(rev.months);
@@ -72,7 +72,7 @@ function drawRevChart(months){
 }
 function renderTenants(){
   const box=$('#tenants');
-  if(!TENANTS.length){ box.innerHTML='<div class="empty">Aún no hay restaurantes. Crea el primero con «＋ Nuevo restaurante».</div>'; return; }
+  if(!TENANTS.length){ box.innerHTML='<div class="empty">Aún no hay negocios. Crea el primero con «＋ Nuevo negocio».</div>'; return; }
   // Agrupar por cadena (mismo nombre, sin distinguir mayúsculas). Grupos de 2+ locales se enmarcan juntos.
   const ckey = s => (s||'').trim().toLowerCase();
   const groups = new Map();   // clave -> {name, items[]}
@@ -183,10 +183,10 @@ function slugPreview(name){
 }
 async function createForm(){
   if(!_TPLS){ try{ _TPLS=(await api('/api/platform/templates')).templates; }catch{ _TPLS=[]; } }
-  modal(`<div class="modal-head"><div><h2>Nuevo restaurante</h2>
+  modal(`<div class="modal-head"><div><h2>Nuevo negocio</h2>
       <div class="sub">Solo necesitas el nombre: usuario y contraseña se generan solos.</div></div>
     <span class="close" onclick="closeModal()">×</span></div>
-    <div class="field"><label>Nombre del restaurante *</label>
+    <div class="field"><label>Nombre del negocio *</label>
       <input id="nt-name" placeholder="Ej. La Parrilla de Ana" oninput="ntAuto()"></div>
     <div class="form-grid">
       <div class="field"><label>Usuario (se genera del nombre)</label><input id="nt-user" autocomplete="off"></div>
@@ -208,13 +208,13 @@ async function createForm(){
       <label>👑 Nombre de la cadena <span class="sub">(agrupa varios locales de la misma marca)</span></label>
       <input id="nt-chain" maxlength="60" placeholder="Ej. Grupo Sabor" autocomplete="off">
       <div class="sub" style="margin-top:4px">Escribe el mismo nombre en cada local del grupo para unirlos.</div></div>
-    <div class="field"><label>Tipo de negocio (niveles y recompensas ya calibrados)</label>
+    <div class="field"><label>Tipo de negocio <span class="sub">(niveles y recompensas ya preparados por nosotros)</span></label>
       <select id="nt-tpl" onchange="ntPreview()">
-        ${_TPLS.map(t=>`<option value="${t.key}">${esc(t.label)} — ${esc(t.desc)}</option>`).join('')}
+        ${_TPLS.map(t=>`<option value="${t.key}">${t.emoji?t.emoji+' ':''}${esc(t.label)} — ${esc(t.desc)}</option>`).join('')}
       </select></div>
     <div id="nt-preview" class="card" style="padding:12px;background:rgba(255,255,255,.045);margin-bottom:14px"></div>
     <div class="sub" style="margin-bottom:14px">Dirección que tendrá: <code class="codebox" id="nt-slug">—</code>. Todo será editable en vivo desde su propio panel.</div>
-    <button class="btn btn-primary" style="width:100%" onclick="createTenant()">Crear restaurante</button>
+    <button class="btn btn-primary" style="width:100%" onclick="createTenant()">Crear negocio</button>
     <p id="nt-err" class="sub" style="color:var(--bad);margin-top:10px"></p>`);
   ntPreview();
 }
@@ -243,7 +243,7 @@ async function createTenant(){
     const r = await api('/api/platform/tenants',{method:'POST',body:{
       name, admin_user:user, admin_password:pass, template:$('#nt-tpl').value, plan:$('#nt-plan').value,
       chain_group: ($('#nt-plan').value==='cadena' ? ($('#nt-chain')?.value.trim()||'') : '') }});
-    closeModal(); toast('Restaurante creado','ok');
+    closeModal(); toast('Negocio creado','ok');
     await loadAll();
     handoffData(r.slug, r.name, user, pass);
   }catch(e){ const el=$('#nt-err'); if(el) el.textContent=e.message; else toast(e.message,'bad'); }
@@ -340,8 +340,8 @@ function editForm(id){
     </div>
     <div style="margin-top:18px;padding:14px;border:1px solid #6d3730;border-radius:10px">
       <strong style="color:var(--bad)">Zona de peligro</strong>
-      <div class="sub" style="margin:4px 0 10px">Eliminar borra PARA SIEMPRE el restaurante, sus ${t.customers} cliente(s) y todo su historial. Si solo quiere dejar de usarlo, usa «Suspender».</div>
-      <button class="btn btn-danger btn-sm" onclick="deleteForm(${t.id})">Eliminar restaurante…</button>
+      <div class="sub" style="margin:4px 0 10px">Eliminar borra PARA SIEMPRE el negocio, sus ${t.customers} cliente(s) y todo su historial. Si solo quiere dejar de usarlo, usa «Suspender».</div>
+      <button class="btn btn-danger btn-sm" onclick="deleteForm(${t.id})">Eliminar negocio…</button>
     </div>`);
 }
 function pickEdPlan(p){
@@ -352,7 +352,7 @@ function pickEdPlan(p){
 function deleteForm(id){
   const t = TENANTS.find(x=>x.id===id); if(!t) return;
   modal(`<div class="modal-head"><div><h2 style="color:var(--bad)">Eliminar «${esc(t.name)}»</h2>
-      <div class="sub">Esto borra el restaurante, sus ${t.customers} cliente(s), puntos, canjes e historial. <strong>No se puede deshacer</strong> (se guardará una última copia de seguridad automática antes).</div></div>
+      <div class="sub">Esto borra el negocio, sus ${t.customers} cliente(s), puntos, canjes e historial. <strong>No se puede deshacer</strong> (se guardará una última copia de seguridad automática antes).</div></div>
     <span class="close" onclick="closeModal()">×</span></div>
     <div class="field"><label>Para confirmar, escribe el nombre exacto: <strong>${esc(t.name)}</strong></label>
       <input id="del-confirm" placeholder="${esc(t.name)}" autocomplete="off"></div>
@@ -365,7 +365,7 @@ function deleteForm(id){
 async function doDeleteTenant(id){
   try{
     await api(`/api/platform/tenants/${id}/delete`,{method:'POST',body:{confirm_name:$('#del-confirm').value}});
-    closeModal(); toast('Restaurante eliminado','ok'); loadAll();
+    closeModal(); toast('Negocio eliminado','ok'); loadAll();
   }catch(e){ $('#del-err').textContent=e.message; }
 }
 async function saveTenant(id){
@@ -390,7 +390,7 @@ async function toggleActive(id,active){
 function showInfo(){
   const i=window._INFO||{};
   modal(`<div class="modal-head"><h2>Tus datos y copias</h2><span class="close" onclick="closeModal()">×</span></div>
-    <p class="sub">Todos los restaurantes se guardan de forma permanente en un único archivo. Copias automáticas diarias (se conservan ${i.backups_kept||30}).</p>
+    <p class="sub">Todos los negocios se guardan de forma permanente en un único archivo. Copias automáticas diarias (se conservan ${i.backups_kept||30}).</p>
     <div class="field"><label>Archivo de datos</label><input readonly value="${esc(i.db_path||'')}" onclick="this.select()"></div>
     <div class="field"><label>Carpeta de copias</label><input readonly value="${esc(i.backup_dir||'')}" onclick="this.select()"></div>
     <div class="field"><label>Última copia</label><input readonly value="${i.last_backup?fdate(i.last_backup):'sin copias aún'}"></div>
@@ -438,7 +438,7 @@ async function billingSettings(){
   try{ st=await api('/api/platform/billing/settings'); }catch(e){ toast(e.message,'bad'); return; }
   const hookUrl=(st.public_url||location.origin).replace(/\/$/,'')+st.webhook_path;
   modal(`<div class="modal-head"><div><h2>Facturación</h2>
-      <div class="sub">Cobra a tus restaurantes por suscripción (Stripe) o al menos controla pagos manuales.</div></div>
+      <div class="sub">Cobra a tus negocios por suscripción (Stripe) o al menos controla pagos manuales.</div></div>
     <span class="close" onclick="closeModal()">×</span></div>
     <div class="form-grid">
       <div class="field"><label>Precio mensual (€)</label><input id="bs-price" value="${esc(st.price_eur)}"></div>
@@ -457,7 +457,7 @@ async function billingSettings(){
       <div class="sub" style="margin-top:6px">Eventos: <code class="codebox">checkout.session.completed</code>, <code class="codebox">invoice.paid</code>, <code class="codebox">invoice.payment_failed</code>, <code class="codebox">customer.subscription.deleted</code>. Copia el «Signing secret» (whsec_…) arriba.</div>
     </div>
     <button class="btn btn-primary" style="width:100%" onclick="saveBillingSettings()">Guardar</button>
-    <p class="sub" style="margin-top:10px">Sin Stripe también funciona: usa «Marcar pagado» en cada restaurante (transferencia/efectivo) y la suspensión automática por vencimiento hará el resto.</p>`);
+    <p class="sub" style="margin-top:10px">Sin Stripe también funciona: usa «Marcar pagado» en cada negocio (transferencia/efectivo) y la suspensión automática por vencimiento hará el resto.</p>`);
 }
 async function saveBillingSettings(){
   try{
@@ -492,7 +492,7 @@ async function billingForm(id){
     <button class="btn btn-primary" style="width:100%" onclick="genCheckout(${id})">💳 Generar enlace de suscripción (Stripe)</button>
     <div id="bf-link" style="margin-top:12px"></div>
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:16px 0 4px">
-      <div class="field" style="margin:0;max-width:150px"><label>Cuota de ESTE restaurante (€/mes)</label>
+      <div class="field" style="margin:0;max-width:150px"><label>Cuota de ESTE negocio (€/mes)</label>
         <input id="bf-price" type="number" step="0.01" value="${d.own_price??''}" placeholder="${fmtEUR(d.price)} (global)"></div>
       <button class="btn btn-ghost" onclick="savePrice(${id})">Guardar cuota</button>
       <span class="sub">Déjalo vacío para usar la cuota global.</span>
@@ -531,7 +531,7 @@ async function genCheckout(id){
   const box=$('#bf-link'); box.innerHTML='<div class="sub">Creando enlace…</div>';
   try{
     const r=await api(`/api/platform/tenants/${id}/billing/checkout`,{method:'POST',body:{}});
-    box.innerHTML=`<div class="field"><label>Envía este enlace al restaurante (pagan con tarjeta y queda todo automático)</label>
+    box.innerHTML=`<div class="field"><label>Envía este enlace al negocio (pagan con tarjeta y queda todo automático)</label>
       <input readonly value="${esc(r.url)}" onclick="this.select()"></div>
       <div style="text-align:center;margin-top:8px">${qrImg(r.url,140)}</div>`;
     loadAll();

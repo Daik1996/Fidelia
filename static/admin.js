@@ -10,7 +10,7 @@ let VIEW = 'dashboard';
 const caps = c => !!(CONFIG && CONFIG._caps && CONFIG._caps[c]);
 const planLabel = () => (CONFIG && CONFIG._plan_info && CONFIG._plan_info.label) || 'tu plan';
 // Plan mínimo que incluye cada capacidad (para el mensaje de "mejora a…")
-const CAP_MIN_PLAN = { stats:'Pro', birthday:'Pro', branding:'Pro' };
+const CAP_MIN_PLAN = { stats:'Pro', birthday:'Pro', branding:'Pro', promos:'Cadena' };
 // Panel "bloqueado" reutilizable. Recibe la CAPACIDAD; si ya se tiene, devuelve '' (no se muestra).
 function lockCard(cap, titulo, desc){
   if(caps(cap)) return '';                       // ya desbloqueado (p. ej. Pro o Cadena): nada que bloquear
@@ -126,6 +126,59 @@ async function boot(){
   $('#nav-chain')?.classList.toggle('hide', !showChain);
   if(!CONFIG.setup_done){ showSetupWizard(); return; }
   setView('charge');
+  // Comprobar si el negocio debe aceptar los términos legales
+  checkLegal();
+}
+
+/* ================= ACEPTACIÓN LEGAL (obligatoria) ================= */
+async function checkLegal(){
+  let st;
+  try{ st = await api('/api/legal/status'); }catch{ return; }
+  if(!st.needs_acceptance) return;
+  const docs = (await api('/api/legal')).docs;
+  const links = docs.map(d=>`<a href="#" onclick="event.preventDefault();showLegalDoc('${d.key}')" style="color:var(--plum);font-weight:600;white-space:nowrap">${esc(d.title)}</a>`).join(' · ');
+  modal(`<div class="modal-head"><h2>Antes de empezar</h2></div>
+    <p class="sub" style="margin-bottom:12px">Para usar ${'Fidelia'}, necesitas leer y aceptar nuestras condiciones. Es un paso obligatorio y solo se hace una vez.</p>
+    <div class="card" style="padding:12px;background:rgba(0,0,0,.03);margin-bottom:14px;line-height:2">${links}</div>
+    <label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer;margin-bottom:6px">
+      <input type="checkbox" id="lg-accept" style="width:20px;height:20px;flex:none;margin-top:1px">
+      <span>He leído y acepto los Términos y Condiciones, la Política de Privacidad, el Aviso Legal, la Política de Cookies y el Contrato de Encargo de Tratamiento.</span></label>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button class="btn btn-primary" onclick="acceptLegal()">Aceptar y continuar</button>
+    </div>
+    <p class="sub" id="lg-accept-err" style="color:var(--bad);margin-top:8px"></p>`);
+  // el modal legal no se cierra al hacer clic fuera: es obligatorio
+  const ov=$('#modal-root .overlay'); if(ov) ov.onclick=null;
+}
+async function acceptLegal(){
+  if(!$('#lg-accept').checked){ $('#lg-accept-err').textContent='Marca la casilla para continuar.'; return; }
+  try{
+    await api('/api/legal/accept',{method:'POST',body:{accepted_by:(CONFIG.business.name||'')}});
+    closeModal(); toast('¡Listo! Gracias','ok');
+  }catch(e){ $('#lg-accept-err').textContent=e.message; }
+}
+async function showLegalDoc(key){
+  const d = await api('/api/legal/'+key);
+  modal(`<div class="modal-head"><h2>${esc(d.title)}</h2><button class="close" onclick="checkLegal()">×</button></div>
+    <div style="max-height:60vh;overflow:auto;font-size:13.5px;line-height:1.6" class="legal-body">${mdToHtml(d.body)}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button class="btn btn-ghost" onclick="checkLegal()">Volver</button></div>`);
+}
+// Mini conversor Markdown -> HTML (encabezados, negrita, listas, párrafos)
+function mdToHtml(md){
+  const esc2=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return esc2(md).split(/\n\n+/).map(block=>{
+    block=block.trim(); if(!block) return '';
+    if(block.startsWith('### ')) return '<h4>'+inline(block.slice(4))+'</h4>';
+    if(block.startsWith('## ')) return '<h3>'+inline(block.slice(3))+'</h3>';
+    if(block.startsWith('# ')) return '<h2 style="margin-top:0">'+inline(block.slice(2))+'</h2>';
+    if(/^\s*-\s/m.test(block)){
+      const items=block.split(/\n/).filter(l=>l.trim().startsWith('- ')).map(l=>'<li>'+inline(l.replace(/^\s*-\s/,''))+'</li>').join('');
+      return '<ul style="padding-left:20px;margin:8px 0">'+items+'</ul>';
+    }
+    return '<p>'+inline(block).replace(/\n/g,'<br>')+'</p>';
+  }).join('');
+  function inline(s){ return s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/_(.+?)_/g,'<em>$1</em>'); }
 }
 
 /* ================= ASISTENTE DE CONFIGURACIÓN INICIAL ================= */
@@ -181,7 +234,7 @@ function setView(v){
   $('#nav-backdrop')?.classList.remove('show');
   $$('.nav-item[data-view]').forEach(n=>n.classList.toggle('active', n.dataset.view===v));
   ({charge:renderCharge, dashboard:renderDashboard, customers:renderCustomers, register:renderRegister,
-    program:renderProgram, ranking:renderRanking, chain:renderChain, settings:renderSettings}[v] || renderCharge)();
+    program:renderProgram, ranking:renderRanking, promo:renderPromo, chain:renderChain, settings:renderSettings}[v] || renderCharge)();
 }
 
 /* ================= SUMAR PUNTOS (vista principal, ultra simple) ================= */
@@ -288,6 +341,64 @@ async function renderDashboard(){
   applyPendingCode();
 }
 const stat=(k,v)=>`<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+
+/* ================= CAMPAÑAS DE PUNTOS MULTIPLICADOS (solo Cadena) ================= */
+async function renderPromo(){
+  const m=$('#main');
+  m.innerHTML=`<div class="page-head"><div><h1>🔥 Campañas de puntos</h1>
+    <div class="sub">Multiplica los puntos en los días flojos para atraer clientes</div></div></div>
+    <div id="promo-body"></div>`;
+  const body=$('#promo-body');
+  if(!caps('promos')){
+    body.innerHTML = lockCard('promos', 'Campañas de puntos multiplicados',
+      'Activa días de puntos x2, x3… para llenar las horas o días flojos. Tus clientes ven el aviso y les entra el gusanillo de venir. Una herramienta de marketing muy potente, exclusiva del plan Cadena.');
+    return;
+  }
+  const promo = CONFIG._promo || {};
+  const activeMult = CONFIG._active_multiplier || 1;
+  const isOn = promo.enabled && activeMult>1;
+  body.innerHTML = `
+    <div class="card section-card" style="border-left:4px solid ${isOn?'#e8590c':'var(--gold)'}">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between">
+        <div>
+          <h3 style="margin:0">${isOn?`🔥 Campaña ACTIVA: puntos x${activeMult}`:'Campaña de puntos'}</h3>
+          <div class="hint">${isOn?`Ahora mismo tus clientes ganan ${activeMult}× puntos en cada compra.`:'No hay ninguna campaña activa. Configúrala abajo.'}</div>
+        </div>
+        <span style="background:linear-gradient(135deg,#b8860b,#e0a021);color:#fff;font-size:11px;font-weight:800;padding:4px 11px;border-radius:20px;white-space:nowrap">👑 Función de Cadena</span>
+      </div>
+    </div>
+    <div class="card section-card">
+      <h3>Configurar campaña</h3>
+      <div class="form-grid">
+        <div class="field"><label>Multiplicador de puntos</label>
+          <select id="pr-mult">
+            ${[2,3,4,5].map(x=>`<option value="${x}" ${Number(promo.multiplier)===x?'selected':''}>x${x} puntos</option>`).join('')}
+          </select></div>
+        <div class="field"><label>Nombre de la campaña <span class="sub">(lo ve el cliente)</span></label>
+          <input id="pr-label" maxlength="60" placeholder="Ej. Martes locos" value="${esc(promo.label||'')}"></div>
+        <div class="field" style="grid-column:1/-1"><label>Termina el <span class="sub">(opcional; vacío = hasta que la desactives)</span></label>
+          <input id="pr-until" type="datetime-local" value="${promo.until?esc(promo.until.slice(0,16)):''}"></div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+        <button class="btn btn-primary" onclick="savePromo(true)">🔥 Activar campaña</button>
+        ${isOn?`<button class="btn btn-danger" onclick="savePromo(false)">Desactivar</button>`:''}
+      </div>
+      <div id="pr-out" style="margin-top:10px"></div>
+    </div>
+    <p class="hint">💡 Idea: activa x2 los martes y miércoles (los días más flojos de la hostelería) y anúncialo. Verás cómo suben las visitas.</p>`;
+}
+async function savePromo(enabled){
+  const out=$('#pr-out');
+  const body={enabled, multiplier:parseInt($('#pr-mult').value)||2, label:$('#pr-label').value.trim()};
+  const until=$('#pr-until').value;
+  if(until) body.until=new Date(until).toISOString();
+  try{
+    await api('/api/promo',{method:'POST',body});
+    CONFIG = await api('/api/config');
+    toast(enabled?'Campaña activada':'Campaña desactivada','ok');
+    renderPromo();
+  }catch(e){ out.innerHTML=`<span class="sub" style="color:var(--bad)">${esc(e.message)}</span>`; }
+}
 
 /* ================= MI CADENA (panel unificado multi-local) ================= */
 function localAdminUrl(slug){
@@ -895,9 +1006,26 @@ async function renderSettings(){
       <h3>🖨 Cartel para mesas</h3>
       <div class="hint">Imprime un A4 con 4 carteles recortables con tu QR y tus colores. Ponlos en mesas, barra o caja.</div>
       <button class="btn btn-primary" onclick="printPoster()">Imprimir cartel de mesas</button>
+    </div>
+    <div class="card section-card">
+      <h3>📄 Documentos legales</h3>
+      <div class="hint">Condiciones del servicio y tratamiento de datos.</div>
+      <div id="legal-links" style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:6px"></div>
+      <div id="legal-accepted" class="hint" style="margin-top:8px"></div>
     </div>`;
   loadDevices();
   loadBackupInfo();
+  loadLegalLinks();
+}
+async function loadLegalLinks(){
+  try{
+    const docs=(await api('/api/legal')).docs;
+    $('#legal-links').innerHTML = docs.map(d=>`<a href="#" onclick="event.preventDefault();showLegalDoc('${d.key}')" style="color:var(--plum);font-weight:600">${esc(d.title)}</a>`).join('');
+    const st=await api('/api/legal/status');
+    if(!st.needs_acceptance && st.accepted_at){
+      $('#legal-accepted').textContent = `✓ Aceptados el ${fdate(st.accepted_at)}${st.accepted_by?' por '+st.accepted_by:''} (versión ${st.accepted_version}).`;
+    }
+  }catch{}
 }
 async function loadBackupInfo(){
   try{
@@ -1007,9 +1135,11 @@ async function quickEarn(c, amt, out, isNew=false){
     gained = r.gained_xp||0;
   }
   const lvl = r.level ? `<span class="badge" style="background:${r.level.color};color:#fff">${esc(r.level.name)}</span>` : '';
+  const mult = r.multiplier && r.multiplier>1 ? r.multiplier : 0;
   out.innerHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px;background:#f2faf5;border:1px solid #cfe9da;border-radius:10px">
     <strong>${isNew?'✓ Alta y cobro:':'✓'} ${esc(r.name)}</strong> ${lvl}
     ${gained?`<span>+${gained} pts</span>`:''}
+    ${mult?`<span class="badge" style="background:#e8590c;color:#fff">🔥 x${mult} campaña</span>`:''}
     <span class="sub">total: <strong>${r.xp} pts</strong>${r.next_level?` · le faltan ${r.xp_to_next} para ${esc(r.next_level.name)}`:''}</span>
     ${r.level_up?`<span class="badge" style="background:var(--gold);color:#3a2600">🎉 ¡Sube a ${esc(r.level_up.name)}!</span>`:''}
     <a href="#" class="sub" style="color:var(--plum);font-weight:600" onclick="event.preventDefault();setView('customers');customerDetail(${r.id})">ver ficha</a>

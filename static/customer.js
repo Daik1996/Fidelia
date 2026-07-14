@@ -28,6 +28,14 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
     : `<div class="fallback">${esc((b.name||'F')[0])}</div><span class="biz-name">${esc(b.name)}</span>`;
   $('#tagline').textContent = b.tagline || '';
   $('#foot-name').textContent = b.name || '';
+  // Banner de campaña de puntos multiplicados (si el negocio la tiene activa)
+  if((CFG.active_multiplier||1) > 1){
+    const banner = document.createElement('div');
+    banner.className = 'promo-banner';
+    banner.innerHTML = `🔥 <strong>¡Puntos x${CFG.active_multiplier}${CFG.promo_label?' · '+esc(CFG.promo_label):''}!</strong> Aprovecha y gana el ${CFG.active_multiplier==2?'doble':CFG.active_multiplier+'×'} de puntos.`;
+    const host = document.querySelector('.wrap') || document.body;
+    host.insertBefore(banner, host.firstChild);
+  }
   // Textos
   $('#welcome-title').textContent = b.name || 'Club de fidelidad';
   $('#lookup-help').textContent = CFG.texts.lookup_help || 'Introduce tu teléfono para ver tus puntos.';
@@ -40,6 +48,8 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
   if(CFG.features.public_ranking) loadRanking();
   // Catálogo público (niveles + premios) visible sin identificarse
   renderCatalog();
+  // Enlaces legales en el pie
+  loadFootLegal();
   // Si ya se identificó antes en este dispositivo, cargar su ficha automáticamente
   if(CFG.features.self_lookup){
     let saved=null; try{ saved=localStorage.getItem('fid_myq'); }catch{}
@@ -334,4 +344,41 @@ function drawRanking(which){
       ${tab('month','Este mes')}${tab('year',(RANK.year_label||'Este año').replace('Ranking de ','')) }${tab('alltime','De siempre')}
     </div>${rows}
     ${note?`<div class="muted" style="font-size:11.5px;margin-top:10px">${note} Tus puntos para canjear premios no se tocan.</div>`:''}`;
+}
+
+/* ---------- Documentos legales (pie de página) ---------- */
+async function loadFootLegal(){
+  try{
+    const docs=(await api('/api/legal')).docs;
+    const host=document.getElementById('foot-legal'); if(!host) return;
+    host.innerHTML = docs.map(d=>`<a href="#" onclick="event.preventDefault();showLegal('${d.key}')" style="color:var(--muted);margin:0 6px;text-decoration:underline">${esc(d.title)}</a>`).join('');
+  }catch{}
+}
+async function showLegal(key){
+  let d; try{ d=await api('/api/legal/'+key); }catch{ return; }
+  let ov=document.getElementById('legal-overlay');
+  if(!ov){
+    ov=document.createElement('div'); ov.id='legal-overlay';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML=`<div style="background:#fff;color:#222;max-width:640px;width:100%;max-height:85vh;overflow:auto;border-radius:16px;padding:22px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h2 style="margin:0;font-size:20px">${esc(d.title)}</h2>
+      <button onclick="document.getElementById('legal-overlay').remove()" style="background:none;border:none;font-size:26px;cursor:pointer;color:#888">×</button>
+    </div>
+    <div style="font-size:13.5px;line-height:1.6">${legalMd(d.body)}</div></div>`;
+}
+function legalMd(md){
+  const e=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inl=s=>s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/_(.+?)_/g,'<em>$1</em>');
+  return e(md).split(/\n\n+/).map(bl=>{
+    bl=bl.trim(); if(!bl) return '';
+    if(bl.startsWith('### ')) return '<h4>'+inl(bl.slice(4))+'</h4>';
+    if(bl.startsWith('## ')) return '<h3>'+inl(bl.slice(3))+'</h3>';
+    if(bl.startsWith('# ')) return '<h2 style="margin-top:0">'+inl(bl.slice(2))+'</h2>';
+    if(/^\s*-\s/m.test(bl)) return '<ul style="padding-left:20px">'+bl.split(/\n/).filter(l=>l.trim().startsWith('- ')).map(l=>'<li>'+inl(l.replace(/^\s*-\s/,''))+'</li>').join('')+'</ul>';
+    return '<p>'+inl(bl).replace(/\n/g,'<br>')+'</p>';
+  }).join('');
 }

@@ -37,6 +37,8 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qsl
 
+import legal   # textos legales (RGPD/LSSI) y control de versión
+
 
 # --------------------------------------------------------------------------- #
 #  Rutas (compatibles con PyInstaller)                                        #
@@ -76,7 +78,7 @@ PBKDF2_ITERATIONS = 200_000
 DEFAULT_CONFIG = {
     "setup_done": False,
     "business": {
-        "name": "Mi Restaurante",
+        "name": "Mi negocio",
         "tagline": "Cada visita suma. Cada cliente cuenta.",
         "logo_data": "",
         "currency_symbol": "€",
@@ -119,7 +121,7 @@ DEFAULT_CONFIG = {
 # --------------------------------------------------------------------------- #
 SUGGESTED_TEMPLATES = {
     "restaurante": {
-        "label": "Restaurante",
+        "label": "Restaurante", "emoji": "🍽️",
         "desc": "Ticket medio 20–40 €. Recompensas de sala clásicas.",
         "levels": [
             {"id": 1, "name": "Bronce",  "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenido al club."},
@@ -137,7 +139,7 @@ SUGGESTED_TEMPLATES = {
         ],
     },
     "cafeteria": {
-        "label": "Cafetería / Brunch",
+        "label": "Cafetería / Brunch", "emoji": "☕",
         "desc": "Ticket medio 5–15 €. Visitas frecuentes, premios pequeños.",
         "levels": [
             {"id": 1, "name": "Bronce",  "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenido al club."},
@@ -154,7 +156,7 @@ SUGGESTED_TEMPLATES = {
         ],
     },
     "bar": {
-        "label": "Bar de tapas",
+        "label": "Bar de tapas", "emoji": "🍺",
         "desc": "Ticket medio 10–25 €. Rotación alta, premios ágiles.",
         "levels": [
             {"id": 1, "name": "Bronce",  "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenido al club."},
@@ -171,6 +173,91 @@ SUGGESTED_TEMPLATES = {
             {"id": 6, "name": "Picoteo para 4",    "type": "xp", "cost_xp": 900,  "min_level": 3, "stock": -1, "active": True, "desc": "Surtido de raciones para la mesa."},
         ],
     },
+    "peluqueria": {
+        "label": "Peluquería / Barbería", "emoji": "💈",
+        "desc": "Servicios de 10–40 €. Fideliza citas recurrentes.",
+        "levels": [
+            {"id": 1, "name": "Nuevo",    "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenido/a."},
+            {"id": 2, "name": "Habitual", "min_xp": 200,  "color": "#9aa4ad", "perk": "Lavado y peinado de regalo."},
+            {"id": 3, "name": "VIP",      "min_xp": 600,  "color": "#e0a021", "perk": "Corte gratis en tu cumpleaños."},
+            {"id": 4, "name": "Estrella", "min_xp": 1500, "color": "#6d3b5e", "perk": "10% siempre y cita prioritaria."},
+        ],
+        "rewards": [
+            {"id": 1, "name": "Arreglo de flequillo", "type": "xp", "cost_xp": 80,   "min_level": 1, "stock": -1, "active": True, "desc": "Retoque rápido entre cortes."},
+            {"id": 2, "name": "Lavado + peinado",     "type": "xp", "cost_xp": 200,  "min_level": 1, "stock": -1, "active": True, "desc": "Para un día especial."},
+            {"id": 3, "name": "Corte gratis",         "type": "xp", "cost_xp": 450,  "min_level": 2, "stock": -1, "active": True, "desc": "Tu corte habitual, invita la casa."},
+            {"id": 4, "name": "Tratamiento capilar",  "type": "xp", "cost_xp": 700,  "min_level": 3, "stock": -1, "active": True, "desc": "Hidratación o mascarilla premium."},
+            {"id": 5, "name": "Producto de peinado",  "type": "xp", "cost_xp": 900,  "min_level": 3, "stock": 20, "active": True, "desc": "Llévate tu producto favorito."},
+        ],
+    },
+    "belleza": {
+        "label": "Estética / Uñas / Spa", "emoji": "💅",
+        "desc": "Tratamientos de 15–60 €. Clientas muy recurrentes.",
+        "levels": [
+            {"id": 1, "name": "Nueva",    "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenida."},
+            {"id": 2, "name": "Habitual", "min_xp": 250,  "color": "#9aa4ad", "perk": "Diseño de uñas extra sin coste."},
+            {"id": 3, "name": "VIP",      "min_xp": 700,  "color": "#e0a021", "perk": "Tratamiento gratis en tu cumpleaños."},
+            {"id": 4, "name": "Diva",     "min_xp": 1800, "color": "#6d3b5e", "perk": "10% siempre y cita prioritaria."},
+        ],
+        "rewards": [
+            {"id": 1, "name": "Diseño de uñas",       "type": "xp", "cost_xp": 120,  "min_level": 1, "stock": -1, "active": True, "desc": "Un diseño especial de regalo."},
+            {"id": 2, "name": "Manicura exprés",      "type": "xp", "cost_xp": 300,  "min_level": 1, "stock": -1, "active": True, "desc": "Manos listas en 20 minutos."},
+            {"id": 3, "name": "Limpieza facial",      "type": "xp", "cost_xp": 550,  "min_level": 2, "stock": -1, "active": True, "desc": "Piel fresca y luminosa."},
+            {"id": 4, "name": "Masaje 30 min",        "type": "xp", "cost_xp": 800,  "min_level": 3, "stock": -1, "active": True, "desc": "Relax de media hora."},
+            {"id": 5, "name": "Sesión premium",       "type": "xp", "cost_xp": 1500, "min_level": 4, "stock": 10, "active": True, "desc": "El tratamiento estrella del centro."},
+        ],
+    },
+    "tienda": {
+        "label": "Tienda / Ropa / Retail", "emoji": "🛍️",
+        "desc": "Compras variables. Premia el gasto acumulado.",
+        "levels": [
+            {"id": 1, "name": "Cliente",   "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenido/a."},
+            {"id": 2, "name": "Frecuente", "min_xp": 400,  "color": "#9aa4ad", "perk": "Envío o arreglo gratis."},
+            {"id": 3, "name": "Oro",       "min_xp": 1000, "color": "#e0a021", "perk": "Descuento de cumpleaños."},
+            {"id": 4, "name": "Platino",   "min_xp": 2500, "color": "#6d3b5e", "perk": "10% siempre y acceso a preventas."},
+        ],
+        "rewards": [
+            {"id": 1, "name": "5 € de descuento",  "type": "xp", "cost_xp": 200,  "min_level": 1, "stock": -1, "active": True, "desc": "En tu próxima compra."},
+            {"id": 2, "name": "Complemento gratis","type": "xp", "cost_xp": 400,  "min_level": 1, "stock": -1, "active": True, "desc": "Un accesorio pequeño de regalo."},
+            {"id": 3, "name": "15 € de descuento", "type": "xp", "cost_xp": 700,  "min_level": 2, "stock": -1, "active": True, "desc": "Para darte un capricho."},
+            {"id": 4, "name": "Prenda básica",     "type": "xp", "cost_xp": 1200, "min_level": 3, "stock": -1, "active": True, "desc": "Camiseta o básico de temporada."},
+            {"id": 5, "name": "30 € de descuento", "type": "xp", "cost_xp": 2000, "min_level": 4, "stock": -1, "active": True, "desc": "En cualquier compra."},
+        ],
+    },
+    "gimnasio": {
+        "label": "Gimnasio / Centro deportivo", "emoji": "🏋️",
+        "desc": "Cuotas y bonos. Premia la constancia.",
+        "levels": [
+            {"id": 1, "name": "Novato",   "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenido/a."},
+            {"id": 2, "name": "En forma", "min_xp": 300,  "color": "#9aa4ad", "perk": "Invita a un amigo un día gratis."},
+            {"id": 3, "name": "Atleta",   "min_xp": 900,  "color": "#e0a021", "perk": "Sesión con entrenador de regalo."},
+            {"id": 4, "name": "Élite",    "min_xp": 2200, "color": "#6d3b5e", "perk": "10% en cuota y clases premium."},
+        ],
+        "rewards": [
+            {"id": 1, "name": "Botella o toalla",    "type": "xp", "cost_xp": 250,  "min_level": 1, "stock": 30, "active": True, "desc": "Merchandising del gimnasio."},
+            {"id": 2, "name": "Clase dirigida",      "type": "xp", "cost_xp": 400,  "min_level": 1, "stock": -1, "active": True, "desc": "Spinning, yoga o body pump."},
+            {"id": 3, "name": "Sesión de entreno",   "type": "xp", "cost_xp": 800,  "min_level": 2, "stock": -1, "active": True, "desc": "1-a-1 con entrenador personal."},
+            {"id": 4, "name": "1 semana gratis",     "type": "xp", "cost_xp": 1500, "min_level": 3, "stock": -1, "active": True, "desc": "Trae a quien quieras."},
+            {"id": 5, "name": "1 mes de cuota",      "type": "xp", "cost_xp": 3000, "min_level": 4, "stock": -1, "active": True, "desc": "Un mes de regalo."},
+        ],
+    },
+    "generico": {
+        "label": "Otro tipo de negocio", "emoji": "🏪",
+        "desc": "Configuración neutra que sirve para cualquier comercio.",
+        "levels": [
+            {"id": 1, "name": "Bronce",  "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenido/a al club."},
+            {"id": 2, "name": "Plata",   "min_xp": 300,  "color": "#9aa4ad", "perk": "Detalle de cortesía."},
+            {"id": 3, "name": "Oro",     "min_xp": 800,  "color": "#e0a021", "perk": "Regalo en tu cumpleaños."},
+            {"id": 4, "name": "Platino", "min_xp": 2000, "color": "#6d3b5e", "perk": "10% siempre y atención prioritaria."},
+        ],
+        "rewards": [
+            {"id": 1, "name": "Pequeño detalle",   "type": "xp", "cost_xp": 100,  "min_level": 1, "stock": -1, "active": True, "desc": "Un obsequio de bienvenida."},
+            {"id": 2, "name": "5 € de descuento",  "type": "xp", "cost_xp": 300,  "min_level": 1, "stock": -1, "active": True, "desc": "En tu próxima compra o servicio."},
+            {"id": 3, "name": "Regalo mediano",    "type": "xp", "cost_xp": 600,  "min_level": 2, "stock": -1, "active": True, "desc": "Un producto o servicio a elegir."},
+            {"id": 4, "name": "15 € de descuento", "type": "xp", "cost_xp": 1000, "min_level": 3, "stock": -1, "active": True, "desc": "Para gastar como quieras."},
+            {"id": 5, "name": "Regalo premium",    "type": "xp", "cost_xp": 2000, "min_level": 4, "stock": -1, "active": True, "desc": "Lo mejor de la casa."},
+        ],
+    },
 }
 
 # --- Planes comerciales (fuente única) ---
@@ -185,7 +272,7 @@ PLANS = {
                "features": "Todo + cumpleaños, estadísticas y marca propia"},
     "cadena": {"key": "cadena", "label": "Cadena", "price": 129,
                "color": "#b8860b", "color2": "#e0a021", "emoji": "👑",
-               "features": "Multi-local, panel unificado y soporte prioritario"},
+               "features": "Multi-local, panel unificado, campañas de puntos multiplicados y soporte prioritario"},
 }
 DEFAULT_PLAN = "pro"
 
@@ -194,9 +281,9 @@ DEFAULT_PLAN = "pro"
 #   stats    : panel de estadísticas del restaurante (niveles, top, facturado)
 #   branding : personalización de marca (logo, colores, tipografía)
 PLAN_FEATURES = {
-    "basico": {"birthday": False, "stats": False, "branding": False},
-    "pro":    {"birthday": True,  "stats": True,  "branding": True},
-    "cadena": {"birthday": True,  "stats": True,  "branding": True},
+    "basico": {"birthday": False, "stats": False, "branding": False, "promos": False},
+    "pro":    {"birthday": True,  "stats": True,  "branding": True,  "promos": False},
+    "cadena": {"birthday": True,  "stats": True,  "branding": True,  "promos": True},
 }
 
 def norm_plan(v):
@@ -358,6 +445,15 @@ def init_db():
             db.execute("UPDATE tenants SET plan = 'pro' WHERE plan IS NULL")
         if "chain_group" not in tcols:
             db.execute("ALTER TABLE tenants ADD COLUMN chain_group TEXT")
+        if "legal_accepted_version" not in tcols:
+            db.execute("ALTER TABLE tenants ADD COLUMN legal_accepted_version TEXT")
+            db.execute("ALTER TABLE tenants ADD COLUMN legal_accepted_at TEXT")
+            db.execute("ALTER TABLE tenants ADD COLUMN legal_accepted_by TEXT")
+        # Blindaje: normaliza cualquier plan guardado con espacios/mayúsculas o valores raros
+        for _r in db.execute("SELECT id, plan FROM tenants").fetchall():
+            _norm = norm_plan(_r["plan"])
+            if _r["plan"] != _norm:
+                db.execute("UPDATE tenants SET plan = ? WHERE id = ?", (_norm, _r["id"]))
         if db.execute("SELECT COUNT(*) c FROM platform_users").fetchone()["c"] == 0:
             db.execute("INSERT INTO platform_users (username, password_hash, created_at) VALUES (?,?,?)",
                        ("admin", hash_password("admin"), now_iso()))
@@ -1456,14 +1552,21 @@ def t_password(ctx):
     return {"ok": True}
 
 
-def t_get_config(ctx):
+def _config_with_meta(ctx):
+    """Devuelve la config del tenant con los metadatos de plan que necesita el panel."""
     cfg = dict(ctx.tenant["config"])
     plan = norm_plan(ctx.tenant.get("plan"))
     cfg["_plan"] = plan
     cfg["_plan_info"] = PLANS[plan]
     cfg["_caps"] = plan_caps(plan)
     cfg["_chain"] = clean_chain(ctx.tenant.get("chain_group")) if plan == "cadena" else None
+    cfg["_promo"] = cfg.get("promo") or {}
+    cfg["_active_multiplier"] = active_multiplier(ctx.tenant)
     return cfg
+
+
+def t_get_config(ctx):
+    return _config_with_meta(ctx)
 
 
 HEX_RE = re.compile(r"^#[0-9a-fA-F]{3,8}$")
@@ -1482,7 +1585,7 @@ def _clean_text(v, maxlen=200):
 def sanitize_config(cfg):
     """Deja la configuración siempre segura y coherente, venga de donde venga."""
     b, t, e = cfg["business"], cfg["theme"], cfg["earning"]
-    b["name"] = _clean_text(b.get("name"), 80) or "Mi Restaurante"
+    b["name"] = _clean_text(b.get("name"), 80) or "Mi negocio"
     b["tagline"] = _clean_text(b.get("tagline"), 140)
     b["currency_symbol"] = _clean_text(b.get("currency_symbol"), 5) or "€"
     logo = str(b.get("logo_data") or "")
@@ -1534,11 +1637,11 @@ def t_put_config(ctx):
         cfg["setup_done"] = bool(payload["setup_done"])
     sanitize_config(cfg)
     save_tenant_config(ctx.tenant["id"], cfg)
-    return cfg
+    return _config_with_meta(ctx)
 
 
 def t_templates(ctx):
-    return {"templates": [{"key": k, "label": v["label"], "desc": v["desc"],
+    return {"templates": [{"key": k, "label": v["label"], "emoji": v.get("emoji", "🏪"), "desc": v["desc"],
                            "levels": v["levels"], "rewards": v["rewards"]}
                           for k, v in SUGGESTED_TEMPLATES.items()]}
 
@@ -1556,7 +1659,7 @@ def t_apply_template(ctx):
         cfg["rewards"] = json.loads(json.dumps(tpl["rewards"]))
     sanitize_config(cfg)
     save_tenant_config(ctx.tenant["id"], cfg)
-    return cfg
+    return _config_with_meta(ctx)
 
 
 def t_setup(ctx):
@@ -1586,7 +1689,7 @@ def t_setup(ctx):
         with get_db() as db:
             db.execute("UPDATE admin_users SET password_hash = ? WHERE id = ?",
                        (hash_password(new_pw), ctx.user["id"]))
-    return {"ok": True, "config": cfg}
+    return {"ok": True, "config": _config_with_meta(ctx)}
 
 
 def t_net(ctx):
@@ -1628,11 +1731,15 @@ def t_public_config(ctx):
     if not caps["branding"]:
         theme = dict(DEFAULT_CONFIG["theme"])
         business = dict(business); business["logo_data"] = ""
+    mult = active_multiplier(ctx.tenant)
+    promo = cfg.get("promo") or {}
     return {
         "business": business, "theme": theme,
         "features": cfg["features"], "texts": cfg["texts"], "levels": cfg["levels"],
         "rewards": [r for r in cfg["rewards"] if r.get("active")],
         "_caps": caps,   # el cliente oculta lo que no aplique (p. ej. pedir cumpleaños)
+        "active_multiplier": mult,
+        "promo_label": (promo.get("label") or "") if mult > 1 else "",
     }
 
 
@@ -1988,6 +2095,56 @@ def _level_up(before_xp, after_xp, cfg):
     return None
 
 
+def active_multiplier(tenant):
+    """Multiplicador de puntos vigente (campañas, solo plan Cadena). 1.0 si no hay."""
+    if not plan_allows(tenant.get("plan"), "promos"):
+        return 1.0
+    promo = (tenant["config"].get("promo") or {})
+    if not promo.get("enabled"):
+        return 1.0
+    try:
+        mult = float(promo.get("multiplier", 1))
+    except Exception:
+        return 1.0
+    if mult <= 1:
+        return 1.0
+    until = promo.get("until")
+    if until:
+        try:
+            if datetime.now(timezone.utc).date() > datetime.fromisoformat(until).date():
+                return 1.0
+        except Exception:
+            pass
+    return min(5.0, mult)
+
+
+def t_set_promo(ctx):
+    """Activa/desactiva la campaña de puntos multiplicados. Solo plan Cadena."""
+    if not plan_allows(ctx.tenant.get("plan"), "promos"):
+        raise HttpError(403, "PLAN_LOCKED:promos")
+    b = ctx.body
+    cfg = ctx.tenant["config"]
+    try:
+        mult = float(b.get("multiplier", 2))
+    except Exception:
+        mult = 2.0
+    mult = max(1.0, min(5.0, mult))
+    until = str(b.get("until") or "").strip() or None
+    if until:
+        try:
+            datetime.fromisoformat(until)
+        except Exception:
+            raise HttpError(400, "Fecha de fin no válida")
+    cfg["promo"] = {
+        "enabled": bool(b.get("enabled")),
+        "multiplier": round(mult, 2),
+        "until": until,
+        "label": _clean_text(b.get("label"), 60) or "",
+    }
+    save_tenant_config(ctx.tenant["id"], cfg)
+    return {"ok": True, "promo": cfg["promo"], "active_multiplier": active_multiplier(ctx.tenant)}
+
+
 def t_earn(ctx):
     cfg = ctx.tenant["config"]
     e = cfg["earning"]
@@ -1995,7 +2152,8 @@ def t_earn(ctx):
     amount = min(100000.0, max(0.0, as_float(ctx.body.get("amount"))))
     count_visit = ctx.body.get("count_visit", True)
     # La visita NO da puntos: solo cuenta cuántas veces ha venido. Los puntos salen del gasto.
-    xp = amount * as_float(e.get("xp_per_currency", 0))
+    mult = active_multiplier(ctx.tenant)
+    xp = amount * as_float(e.get("xp_per_currency", 0)) * mult
     xp = int(xp) if e.get("round_mode") == "floor" else round(xp)
     if amount <= 0 and not count_visit:
         raise HttpError(400, "No hay importe ni visita que registrar")
@@ -2004,14 +2162,16 @@ def t_earn(ctx):
         if not row["active"]:
             raise HttpError(400, "Cliente bloqueado: desbloquéalo para registrar consumos")
         before = row["xp_total"] if row["xp_total"] is not None else row["xp"]
+        note = ctx.body.get("note") or (f"Campaña x{mult:g}" if mult > 1 else None)
         db.execute("UPDATE customers SET xp = xp + ?, xp_total = COALESCE(xp_total, xp) + ?, "
                    "total_spent = total_spent + ?, visits = visits + ? WHERE id = ?",
                    (xp, xp, amount, 1 if count_visit else 0, cid))
         db.execute("INSERT INTO transactions (customer_id, kind, amount, xp_delta, note, created_at) VALUES (?,?,?,?,?,?)",
-                   (cid, "earn", amount, xp, ctx.body.get("note") or None, now_iso()))
+                   (cid, "earn", amount, xp, note, now_iso()))
         row = db.execute("SELECT * FROM customers WHERE id = ?", (cid,)).fetchone()
     data = customer_public(row, cfg)
     data["gained_xp"] = xp
+    data["multiplier"] = mult
     data["level_up"] = _level_up(before, row["xp"], cfg)
     return data
 
@@ -2161,6 +2321,47 @@ def t_chain_overview(ctx):
 
 
 # --------------------------------------------------------------------------- #
+#  Legal (RGPD/LSSI): documentos y registro de aceptación                     #
+# --------------------------------------------------------------------------- #
+def legal_docs(ctx):
+    """Devuelve todos los documentos legales (público)."""
+    return {"version": legal.LEGAL_VERSION, "docs": legal.all_docs()}
+
+
+def legal_doc(ctx):
+    """Devuelve un documento legal concreto por su clave (público)."""
+    doc = legal.get_doc(ctx.params.get("key"))
+    if not doc:
+        raise HttpError(404, "Documento no encontrado")
+    return doc
+
+
+def t_legal_status(ctx):
+    """Indica al panel del negocio si debe aceptar (o re-aceptar) los términos."""
+    with get_db() as db:
+        row = db.execute("SELECT legal_accepted_version, legal_accepted_at, legal_accepted_by "
+                         "FROM tenants WHERE id = ?", (ctx.tenant["id"],)).fetchone()
+    accepted = row["legal_accepted_version"] if row else None
+    return {
+        "current_version": legal.LEGAL_VERSION,
+        "accepted_version": accepted,
+        "accepted_at": row["legal_accepted_at"] if row else None,
+        "accepted_by": row["legal_accepted_by"] if row else None,
+        "needs_acceptance": (accepted != legal.LEGAL_VERSION),
+    }
+
+
+def t_legal_accept(ctx):
+    """Registra la aceptación de los términos por parte del negocio (prueba de consentimiento)."""
+    who = _clean_text(ctx.body.get("accepted_by") or (ctx.user or {}).get("username") or "", 120)
+    with get_db() as db:
+        db.execute("UPDATE tenants SET legal_accepted_version = ?, legal_accepted_at = ?, legal_accepted_by = ? "
+                   "WHERE id = ?",
+                   (legal.LEGAL_VERSION, now_iso(), who, ctx.tenant["id"]))
+    return {"ok": True, "accepted_version": legal.LEGAL_VERSION, "accepted_at": now_iso()}
+
+
+# --------------------------------------------------------------------------- #
 #  Tablas de rutas                                                            #
 # --------------------------------------------------------------------------- #
 PLATFORM_ROUTES = [
@@ -2219,6 +2420,11 @@ TENANT_ROUTES = [
     ("GET",    r"/api/birthdays",   t_birthdays,      True),
     ("GET",    r"/api/stats",       t_stats,          True),
     ("GET",    r"/api/chain/overview", t_chain_overview, True),
+    ("POST",   r"/api/promo",          t_set_promo,      True),
+    ("GET",    r"/api/legal",          legal_docs,       False),
+    ("GET",    r"/api/legal/status",   t_legal_status,   True),
+    ("POST",   r"/api/legal/accept",   t_legal_accept,   True),
+    ("GET",    r"/api/legal/(?P<key>[a-z]+)", legal_doc, False),
 ]
 P_COMPILED = [(m, re.compile("^" + pat + "$"), fn, auth) for (m, pat, fn, auth) in PLATFORM_ROUTES]
 T_COMPILED = [(m, re.compile("^" + pat + "$"), fn, auth) for (m, pat, fn, auth) in TENANT_ROUTES]

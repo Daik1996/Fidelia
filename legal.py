@@ -18,12 +18,12 @@ LEGAL_VERSION = "2026-07-14"
 
 # --- TUS DATOS (RELLÉNALOS) -------------------------------------------------
 LEGAL_DATA = {
-    "titular": "[TU NOMBRE Y APELLIDOS]",
-    "nif": "[TU NIF/DNI]",
-    "domicilio": "[TU DIRECCIÓN FISCAL COMPLETA]",
-    "email": "[TU EMAIL DE CONTACTO]",
+    "titular": "Daniel Álvarez Ramírez",
+    "nif": "51192191X",
+    "domicilio": "Calle José Bergamín 8",
+    "email": "danalra96@hotmail.com",
     "marca": "Fidelia",
-    "web": "[TU DOMINIO, p. ej. https://fidelia.app]",
+    "web": "https://fidelia-m6r8.onrender.com",
 }
 
 

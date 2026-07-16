@@ -4,7 +4,7 @@ const $ = (s, r=document) => r.querySelector(s);
 const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 let CONFIG = null;          // configuración completa del negocio
 let CUR = '€';              // símbolo de moneda
-let VIEW = 'dashboard';
+let VIEW = 'charge';
 
 // Capacidades según el plan contratado (las rellena el backend en /api/config)
 const caps = c => !!(CONFIG && CONFIG._caps && CONFIG._caps[c]);
@@ -45,8 +45,16 @@ let deferredPrompt = null;
 function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
 function showInstallBanner(){
   if(isStandalone()) return;
-  try{ if(localStorage.getItem('fid_install_off')) return; }catch{}
-  document.getElementById('install-banner')?.classList.remove('hide');
+  try{
+    if(localStorage.getItem('fid_install_off')) return;
+    // No insistir: máximo 3 apariciones en total
+    const n=parseInt(localStorage.getItem('fid_install_n')||'0');
+    if(n>=3) return;
+    localStorage.setItem('fid_install_n', String(n+1));
+  }catch{}
+  const el=document.getElementById('install-banner');
+  el?.classList.remove('hide');
+  setTimeout(()=>el?.classList.add('hide'), 15000);   // se retira solo a los 15 s
 }
 window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; showInstallBanner(); });
 async function installApp(){
@@ -65,12 +73,15 @@ window.addEventListener('load', ()=> setTimeout(showInstallBanner, 1500));
 
 /* ---------- API helper ---------- */
 async function api(path, opts={}){
-  const res = await fetch(TBASE + path, {
-    headers: {'Content-Type':'application/json'},
-    credentials:'same-origin',
-    ...opts,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+  let res;
+  try{
+    res = await fetch(TBASE + path, {
+      headers: {'Content-Type':'application/json'},
+      credentials:'same-origin',
+      ...opts,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+  }catch{ throw new Error('Sin conexión. Comprueba tu internet e inténtalo de nuevo.'); }
   if(res.status === 401){ showLogin(); throw new Error('No autenticado'); }
   const data = await res.json().catch(()=>({}));
   if(!res.ok) throw new Error(data.detail || 'Error');
@@ -233,7 +244,7 @@ function setView(v){
   $('#sidebar')?.classList.remove('open');
   $('#nav-backdrop')?.classList.remove('show');
   $$('.nav-item[data-view]').forEach(n=>n.classList.toggle('active', n.dataset.view===v));
-  ({charge:renderCharge, dashboard:renderDashboard, customers:renderCustomers, register:renderRegister,
+  ({charge:renderCharge, dashboard:renderDashboard, customers:renderCustomers,
     program:renderProgram, ranking:renderRanking, promo:renderPromo, chain:renderChain, settings:renderSettings}[v] || renderCharge)();
 }
 
@@ -302,12 +313,12 @@ async function renderDashboard(){
   }catch{}
   const statsBlock = hasStats ? `
     <div class="stat-grid">
-      ${stat('Clientes', s.total_customers)}
-      ${stat('Nuevos (30 días)', s.new_last_30)}
-      ${stat('Visitas totales', s.total_visits)}
-      ${stat('Facturado', fmt(s.total_spent)+' '+CUR)}
-      ${stat('XP en circulación', s.total_xp)}
-      ${stat('Canjes', s.total_redemptions)}
+      ${stat('Clientes', s.total_customers,'👥')}
+      ${stat('Nuevos (30 días)', s.new_last_30,'✨')}
+      ${stat('Visitas totales', s.total_visits,'🚪')}
+      ${stat('Facturado', fmt(s.total_spent)+' '+CUR,'💶')}
+      ${stat('Puntos en circulación', s.total_xp,'⭐')}
+      ${stat('Canjes', s.total_redemptions,'🎁')}
     </div>
     <div class="two-col">
       <div class="card section-card">
@@ -321,10 +332,10 @@ async function renderDashboard(){
       </div>
       <div class="card section-card">
         <h3>Top clientes</h3>
-        <div class="hint">Los que más XP acumulan.</div>
+        <div class="hint">Los que más puntos acumulan.</div>
         <table><tbody>${(s.top||[]).map((t,i)=>`
           <tr><td style="width:30px;font-weight:700;color:var(--gold)">${i+1}</td>
-          <td>${esc(t.name)}</td><td style="text-align:right;font-weight:600">${t.xp} XP</td></tr>`).join('')
+          <td>${esc(t.name)}</td><td style="text-align:right;font-weight:600">${t.xp} pts</td></tr>`).join('')
           || '<tr><td class="empty">Aún no hay clientes.</td></tr>'}
         </tbody></table>
       </div>
@@ -332,15 +343,10 @@ async function renderDashboard(){
     : lockCard('stats', 'Estadísticas de tu negocio',
         'Consulta cuántos clientes tienes, cuánto has facturado, tu distribución por niveles y tu top de clientes más fieles.');
   $('#dash-body').innerHTML = extras + `
-    <div class="card section-card" style="border-left:4px solid var(--gold);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-      <div><h3 style="margin:0">⚡ ¿Vas a cobrar a un cliente?</h3>
-        <div class="hint">Suma sus puntos en 2 segundos: teléfono + importe.</div></div>
-      <button class="btn btn-primary" onclick="setView('charge')">Sumar puntos →</button>
-    </div>
     ${statsBlock}`;
   applyPendingCode();
 }
-const stat=(k,v)=>`<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const stat=(k,v,ic='')=>`<div class="card stat">${ic?`<div class="stat-ic">${ic}</div>`:''}<div><div class="k">${k}</div><div class="v">${v}</div></div></div>`;
 
 /* ================= CAMPAÑAS DE PUNTOS MULTIPLICADOS (solo Cadena) ================= */
 async function renderPromo(){
@@ -421,12 +427,12 @@ async function renderChain(){
       <div class="hint">${ov.count} local${ov.count===1?'':'es'} en esta cadena. Los datos son la suma de todos.</div>
     </div>
     <div class="stat-grid">
-      ${stat('Locales', ov.count)}
-      ${stat('Clientes totales', t.customers)}
-      ${stat('Nuevos (30 días)', t.new_last_30)}
-      ${stat('Visitas totales', t.visits)}
-      ${stat('Facturado total', fmt(t.spent)+' '+cur)}
-      ${stat('Canjes totales', t.redemptions)}
+      ${stat('Locales', ov.count,'🏪')}
+      ${stat('Clientes totales', t.customers,'👥')}
+      ${stat('Nuevos (30 días)', t.new_last_30,'✨')}
+      ${stat('Visitas totales', t.visits,'🚪')}
+      ${stat('Facturado total', fmt(t.spent)+' '+cur,'💶')}
+      ${stat('Canjes totales', t.redemptions,'🎁')}
     </div>
     <div class="card section-card">
       <h3>Comparativa por local</h3>
@@ -564,7 +570,7 @@ async function customerDetail(id){
     <div class="stat-grid" style="margin-bottom:14px">
       <div class="card stat"><div class="k">Nivel</div>
         <div class="v" style="font-size:20px;color:${c.level?.color||'#000'}">${esc(c.level?.name||'—')}</div></div>
-      <div class="card stat"><div class="k">XP</div><div class="v">${c.xp}</div></div>
+      <div class="card stat"><div class="k">Puntos</div><div class="v">${c.xp}</div></div>
       <div class="card stat"><div class="k">Visitas</div><div class="v">${c.visits}</div></div>
       <div class="card stat"><div class="k">Gastado</div><div class="v" style="font-size:20px">${fmt(c.total_spent)} ${CUR}</div></div>
     </div>
@@ -574,7 +580,7 @@ async function customerDetail(id){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0">
       <button class="btn btn-gold btn-sm" onclick="closeModal();openEarnFor(${c.id})">＋ Registrar consumo</button>
       <button class="btn btn-ghost btn-sm" onclick="redeemPicker(${c.id})">★ Canjear recompensa</button>
-      <button class="btn btn-ghost btn-sm" onclick="adjustForm(${c.id})">± Ajustar XP</button>
+      <button class="btn btn-ghost btn-sm" onclick="adjustForm(${c.id})">± Ajustar puntos</button>
       <button class="btn btn-ghost btn-sm" onclick="editCustomer(${c.id})">Editar</button>
       <button class="btn ${c.active?'btn-danger':'btn-ghost'} btn-sm" onclick="banCustomer(${c.id},${c.active?'true':'false'})">${c.active?'⛔ Bloquear':'✓ Desbloquear'}</button>
       <button class="btn btn-danger btn-sm" onclick="delCustomer(${c.id})">Eliminar</button>
@@ -592,7 +598,7 @@ async function customerDetail(id){
       <tr><td>${txLabel(t.kind)}${t.note?` · <span class="sub">${esc(t.note)}</span>`:''}
           <div class="sub">${fdate(t.created_at)}</div></td>
         <td style="text-align:right;font-weight:600;color:${t.xp_delta>=0?'var(--ok)':'var(--bad)'}">
-          ${t.xp_delta>=0?'+':''}${t.xp_delta} XP</td></tr>`).join('')
+          ${t.xp_delta>=0?'+':''}${t.xp_delta} pts</td></tr>`).join('')
       || '<tr><td class="empty">Sin movimientos.</td></tr>'}
     </tbody></table>`);
 }
@@ -612,7 +618,7 @@ async function delCustomer(id){
   closeModal(); toast('Cliente eliminado','ok'); loadCustomers();
 }
 function adjustForm(id){
-  modal(`<div class="modal-head"><h2>Ajustar XP</h2><button class="close" onclick="closeModal()">×</button></div>
+  modal(`<div class="modal-head"><h2>Ajustar puntos</h2><button class="close" onclick="closeModal()">×</button></div>
     <div class="field"><label>Variación (usa negativo para restar)</label><input id="adj-delta" type="number" value="0"></div>
     <div class="field"><label>Motivo</label><input id="adj-reason" placeholder="Corrección, cortesía…"></div>
     <div style="display:flex;justify-content:flex-end;gap:10px">
@@ -622,7 +628,7 @@ function adjustForm(id){
 async function doAdjust(id){
   const delta=parseInt($('#adj-delta').value||'0',10);
   await api('/api/customers/'+id+'/adjust',{method:'POST',body:{delta,reason:$('#adj-reason').value}});
-  toast('XP ajustado','ok'); customerDetail(id);
+  toast('Puntos ajustados','ok'); customerDetail(id);
 }
 async function redeemPicker(id){
   const rewards=CONFIG.rewards.filter(r=>r.active);
@@ -636,79 +642,17 @@ async function redeemPicker(id){
 async function doRedeem(cid,rid){
   try{
     const r=await api('/api/customers/'+cid+'/redeem',{method:'POST',body:{reward_id:rid}});
-    toast('Canjeado: '+r.redeemed,'ok'); customerDetail(cid);
+    toast('Canjeado: '+r.redeemed,'ok');
+    if(VIEW==='customers') customerDetail(cid);
+    else closeModal();   // desde "Sumar puntos": solo confirmar, sin abrir la ficha
   }catch(e){ toast(e.message,'bad'); }
 }
 
-/* ================= REGISTRAR CONSUMO ================= */
-let selectedCustomer=null;
-async function renderRegister(){
-  const m=$('#main');
-  m.innerHTML=`<div class="page-head"><div><h1>Registrar consumo</h1>
-    <div class="sub">Busca al cliente y anota el ticket para sumar XP</div></div></div>
-    <div class="card section-card">
-      <div class="field"><label>Buscar cliente (nombre, teléfono o código)</label>
-        <input id="reg-search" placeholder="Escribe para buscar…" autocomplete="off"></div>
-      <div id="reg-results"></div>
-      <div id="reg-panel" class="hide"></div>
-    </div>`;
-  $('#reg-search').oninput=debounce(regSearch,250);
-}
-async function regSearch(){
-  const q=$('#reg-search').value.trim();
-  const box=$('#reg-results');
-  if(!q){ box.innerHTML=''; return; }
-  const {customers}=await api('/api/customers?q='+encodeURIComponent(q)+'&limit=6');
-  box.innerHTML=customers.length?`<div class="list-editor">${customers.map(c=>`
-    <div class="row row-click" style="grid-template-columns:1fr auto;align-items:center;cursor:pointer" onclick="pickRegById(${c.id})">
-      <div><strong>${esc(c.name)}</strong> <span class="pill">${c.code}</span>
-        <div class="sub">${c.level?esc(c.level.name):''} · ${c.xp} XP${c.phone?' · '+esc(c.phone):''}</div></div>
-      <span class="btn btn-ghost btn-sm">Elegir</span></div>`).join('')}</div>`
-    :`<div class="sub" style="padding:8px 0">Sin resultados. <a onclick="customerForm()" style="cursor:pointer">Crear cliente nuevo</a></div>`;
-}
-async function pickRegById(id){ const c=await api('/api/customers/'+id); pickReg(c); }
-function pickReg(c){
-  selectedCustomer=c;
-  $('#reg-results').innerHTML='';
-  $('#reg-search').value=c.name;
-  const p=$('#reg-panel'); p.classList.remove('hide');
-  const e=CONFIG.earning;
-  p.innerHTML=`
-    <div class="card" style="padding:16px;margin-top:12px;background:#fdfbfc">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <div><strong style="font-size:16px">${esc(c.name)}</strong>
-          <div class="sub">${c.level?esc(c.level.name):''} · ${c.xp} XP</div></div>
-        <span class="pill">Regla: ${e.xp_per_currency} punto${e.xp_per_currency==1?'':'s'} por ${CUR} · la visita solo cuenta la estadística</span>
-      </div>
-      <div class="form-grid" style="margin-top:14px">
-        <div class="field"><label>Importe del ticket (${CUR})</label>
-          <input id="reg-amount" type="number" step="0.01" min="0" value="0" oninput="previewXp()"></div>
-        <div class="field"><label>Nota (opcional)</label><input id="reg-note" placeholder="Mesa 4, menú del día…"></div>
-      </div>
-      <label style="display:flex;align-items:center;gap:8px;font-weight:500;color:var(--ink)">
-        <input type="checkbox" id="reg-visit" checked style="width:auto" onchange="previewXp()"> Contar visita (solo estadística, no da puntos)</label>
-      <div id="reg-preview" class="pill" style="margin:14px 0">Sumará 0 XP</div><br>
-      <button class="btn btn-gold" onclick="submitEarn()">Registrar y sumar XP</button>
-    </div>`;
-  previewXp();
-}
-function previewXp(){
-  const e=CONFIG.earning;
-  const amt=parseFloat($('#reg-amount')?.value||'0')||0;
-  let xp=amt*e.xp_per_currency;
-  xp=e.round_mode==='floor'?Math.floor(xp):Math.round(xp);
-  const el=$('#reg-preview'); if(el) el.textContent='Sumará '+xp+' XP';
-}
-async function openEarnFor(id){ setView('register'); const c=await api('/api/customers/'+id); pickReg(c); }
-async function submitEarn(){
-  const body={amount:parseFloat($('#reg-amount').value||'0')||0,
-    note:$('#reg-note').value.trim(), count_visit:$('#reg-visit').checked};
-  try{
-    const r=await api('/api/customers/'+selectedCustomer.id+'/earn',{method:'POST',body});
-    toast(`+${r.gained_xp} XP a ${r.name}`,'ok');
-    if(r.level_up) toast(`🎉 ¡${r.name} sube a ${r.level_up.name}!`,'ok');
-    pickReg(r);
-  }catch(e){ toast(e.message,'bad'); }
+// Cobrar a un cliente concreto: abre "Sumar puntos" con su código ya puesto
+async function openEarnFor(id){
+  const c=await api('/api/customers/'+id);
+  setView('charge');
+  setTimeout(()=>{ const q=$('#qk-q'); if(q){ q.value=c.code||c.phone||''; $('#qk-amt')?.focus(); } },120);
 }
 
 /* ================= PROGRAMA (personalización total) ================= */
@@ -795,7 +739,7 @@ function progBusiness(){
         <div class="field"><label>Color principal</label>
           <div style="display:flex;gap:8px"><input type="color" class="swatch" value="${t.primary}" oninput="setCfg('theme.primary',this.value);syncHex('p',this.value);liveSave('theme')">
           <input id="hex-p" value="${t.primary}" oninput="setCfg('theme.primary',this.value);liveSave('theme')"></div></div>
-        <div class="field"><label>Color de acento (premios/XP)</label>
+        <div class="field"><label>Color de acento (premios/puntos)</label>
           <div style="display:flex;gap:8px"><input type="color" class="swatch" value="${t.accent}" oninput="setCfg('theme.accent',this.value);syncHex('a',this.value);liveSave('theme')">
           <input id="hex-a" value="${t.accent}" oninput="setCfg('theme.accent',this.value);liveSave('theme')"></div></div>
         <div class="field"><label>Modo</label><select ${bind('theme.mode')}>
@@ -881,7 +825,7 @@ function progLevels(){
     </div>`).join('');
   $('#prog-body').innerHTML=`
     <div class="card section-card list-editor">
-      <h3>Niveles</h3><div class="hint">Crea los rangos por XP. El cliente sube automáticamente al alcanzar el mínimo.</div>
+      <h3>Niveles</h3><div class="hint">Crea los rangos por puntos. El cliente sube automáticamente al alcanzar el mínimo.</div>
       ${rows||'<div class="empty">Sin niveles.</div>'}
       <button class="btn btn-ghost btn-sm" onclick="CONFIG.levels.push({name:'Nuevo nivel',min_xp:0,color:'#888',perk:''});progLevels();liveSave('levels')">＋ Añadir nivel</button>
       ${suggestBar('levels')}
@@ -892,7 +836,7 @@ function progRewards(){
   const rows=CONFIG.rewards.map((r,i)=>`
     <div class="row rw-row">
       <div><label>Recompensa</label><input value="${esc(r.name)}" oninput="CONFIG.rewards[${i}].name=this.value;liveSave('rewards')"></div>
-      <div><label>Coste XP</label><input type="number" value="${r.cost_xp}" oninput="CONFIG.rewards[${i}].cost_xp=parseInt(this.value||0);liveSave('rewards')"></div>
+      <div><label>Coste en puntos</label><input type="number" value="${r.cost_xp}" oninput="CONFIG.rewards[${i}].cost_xp=parseInt(this.value||0);liveSave('rewards')"></div>
       <div><label>Nivel mín.</label><select oninput="CONFIG.rewards[${i}].min_level=parseInt(this.value)||null;liveSave('rewards')">
         <option value="">Cualquiera</option>${CONFIG.levels.map(l=>`<option value="${l.id}" ${r.min_level==l.id?'selected':''}>${esc(l.name)}</option>`).join('')}</select></div>
       <div><label>Stock</label><input type="number" value="${r.stock}" oninput="CONFIG.rewards[${i}].stock=parseInt(this.value);liveSave('rewards')"><div class="sub">-1 = ∞</div></div>
@@ -902,7 +846,7 @@ function progRewards(){
     </div>`).join('');
   $('#prog-body').innerHTML=`
     <div class="card section-card list-editor">
-      <h3>Recompensas</h3><div class="hint">Catálogo de premios que tus clientes canjean con XP.</div>
+      <h3>Recompensas</h3><div class="hint">Catálogo de premios que tus clientes canjean con puntos.</div>
       ${rows||'<div class="empty">Sin recompensas.</div>'}
       <button class="btn btn-ghost btn-sm" onclick="CONFIG.rewards.push({id:Date.now()%100000,name:'Nueva recompensa',type:'xp',cost_xp:100,min_level:null,stock:-1,active:true,desc:''});progRewards();liveSave('rewards')">＋ Añadir recompensa</button>
       ${suggestBar('rewards')}
@@ -1136,6 +1080,9 @@ async function quickEarn(c, amt, out, isNew=false){
   }
   const lvl = r.level ? `<span class="badge" style="background:${r.level.color};color:#fff">${esc(r.level.name)}</span>` : '';
   const mult = r.multiplier && r.multiplier>1 ? r.multiplier : 0;
+  // Premios que este cliente ya puede canjear (para que el personal se lo diga)
+  const lvlId = r.level ? r.level.id : 1;
+  const canje = (CONFIG.rewards||[]).filter(w=>w.active && w.cost_xp<=r.xp && (w.min_level||1)<=lvlId && (w.stock===-1||w.stock>0));
   out.innerHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px;background:#f2faf5;border:1px solid #cfe9da;border-radius:10px">
     <strong>${isNew?'✓ Alta y cobro:':'✓'} ${esc(r.name)}</strong> ${lvl}
     ${gained?`<span>+${gained} pts</span>`:''}
@@ -1143,6 +1090,11 @@ async function quickEarn(c, amt, out, isNew=false){
     <span class="sub">total: <strong>${r.xp} pts</strong>${r.next_level?` · le faltan ${r.xp_to_next} para ${esc(r.next_level.name)}`:''}</span>
     ${r.level_up?`<span class="badge" style="background:var(--gold);color:#3a2600">🎉 ¡Sube a ${esc(r.level_up.name)}!</span>`:''}
     <a href="#" class="sub" style="color:var(--plum);font-weight:600" onclick="event.preventDefault();setView('customers');customerDetail(${r.id})">ver ficha</a>
+    ${canje.length?`<div style="width:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:8px;border-top:1px dashed #cfe9da">
+      <span style="font-weight:700;color:#1c6b45">🎁 Puede canjear:</span>
+      <span class="sub">${canje.slice(0,3).map(w=>esc(w.name)).join(' · ')}${canje.length>3?` y ${canje.length-3} más`:''}</span>
+      <button class="btn btn-gold btn-sm" onclick="redeemPicker(${r.id})">Canjear ahora</button>
+    </div>`:''}
   </div>`;
   $('#qk-q').value=''; $('#qk-amt').value='';
   $('#qk-q').focus();

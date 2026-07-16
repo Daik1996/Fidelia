@@ -3,8 +3,11 @@ const $ = s => document.querySelector(s);
 let TENANTS = [];
 
 async function api(path, opts={}){
-  const res = await fetch(path,{headers:{'Content-Type':'application/json'},credentials:'same-origin',
-    ...opts, body:opts.body?JSON.stringify(opts.body):undefined});
+  let res;
+  try{
+    res = await fetch(path,{headers:{'Content-Type':'application/json'},credentials:'same-origin',
+      ...opts, body:opts.body?JSON.stringify(opts.body):undefined});
+  }catch{ throw new Error('Sin conexión. Comprueba tu internet e inténtalo de nuevo.'); }
   if(res.status===401){ showLogin(); throw new Error('No autenticado'); }
   const data = await res.json().catch(()=>({}));
   if(!res.ok) throw new Error(data.detail||'Error');

@@ -71,10 +71,17 @@
 
   /* Grids */
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:22px}
-  .stat{padding:16px 18px}
+  .stat{padding:16px 18px;display:flex;align-items:center;gap:13px}
+  .stat-ic{font-size:24px;width:46px;height:46px;flex:none;display:grid;place-items:center;
+    background:linear-gradient(135deg, rgba(141,68,112,.10), rgba(224,160,33,.10));border-radius:12px}
   .stat .k{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-  .stat .v{font-family:'Bricolage Grotesque';font-weight:800;font-size:30px;margin-top:4px}
+  .stat .v{font-family:'Bricolage Grotesque';font-weight:800;font-size:28px;margin-top:2px}
   .stat .v small{font-size:15px;color:var(--muted);font-weight:600}
+  /* Entrada suave al cambiar de sección */
+  @keyframes viewfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .main > *{animation:viewfade .18s ease}
+  .row-click{transition:background .12s ease}
+  .row-click:hover{background:rgba(141,68,112,.05);cursor:pointer}
   .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   .field{margin-bottom:14px}
@@ -212,6 +219,6 @@
   <button onclick="dismissInstall()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer">×</button>
 </div>
 
-<script src="/static/admin.js?v=202607141531"></script>
+<script src="/static/admin.js?v=202607161911"></script>
 </body>
 </html>

@@ -10,8 +10,11 @@ const TBASE = location.pathname.replace(/\/$/, '');
   l.href = TBASE + '/manifest.webmanifest'; document.head.appendChild(l); })();
 
 async function api(path, opts={}){
-  const res = await fetch(TBASE + path,{headers:{'Content-Type':'application/json'},
-    ...opts, body: opts.body?JSON.stringify(opts.body):undefined});
+  let res;
+  try{
+    res = await fetch(TBASE + path,{headers:{'Content-Type':'application/json'},
+      ...opts, body: opts.body?JSON.stringify(opts.body):undefined});
+  }catch{ throw new Error('Sin conexión. Comprueba tu internet e inténtalo de nuevo.'); }
   const data = await res.json().catch(()=>({}));
   if(!res.ok) throw new Error(data.detail||'Error');
   return data;
@@ -234,8 +237,15 @@ function isStandalone(){
 }
 function showInstallBanner(){
   if(isStandalone()) return;                              // ya instalada: no molestar
-  if(localStorage.getItem('fid_install_off')) return;    // el usuario la cerró
-  $('#install-banner')?.classList.remove('hide');
+  try{
+    if(localStorage.getItem('fid_install_off')) return;   // el usuario la cerró
+    const n=parseInt(localStorage.getItem('fid_install_n')||'0');
+    if(n>=3) return;                                       // no insistir más de 3 veces
+    localStorage.setItem('fid_install_n', String(n+1));
+  }catch{}
+  const el=$('#install-banner');
+  el?.classList.remove('hide');
+  setTimeout(()=>el?.classList.add('hide'), 15000);        // se retira solo a los 15 s
 }
 async function installApp(){
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);

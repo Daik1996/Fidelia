@@ -1607,6 +1607,9 @@ def sanitize_config(cfg):
         lv["min_xp"] = min(10_000_000, max(0, as_int(lv.get("min_xp", 0))))
         lv["color"] = _clean_color(lv.get("color"), "#888888")
         lv["perk"] = _clean_text(lv.get("perk"), 140)
+    if not cfg["levels"]:
+        # nunca dejar el programa sin niveles: rompería la app del cliente
+        cfg["levels"] = [{"id": 1, "name": "Cliente", "min_xp": 0, "color": "#b08d57", "perk": "Bienvenido al club."}]
     clean_rewards = []
     for rw in cfg["rewards"]:
         rid = as_int(rw.get("id"), 0) or (max([as_int(x.get("id"), 0) for x in clean_rewards] + [0]) + 1)

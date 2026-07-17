@@ -49,13 +49,26 @@ async function loadAll(){
   TENANTS = tenants; window._INFO = info; window._REV = rev;
   const unpaid = tenants.filter(t=>t.pay_state==='unpaid').length;
   $('#pstats').innerHTML = `
-    <div class="card stat money"><div class="k">💰 Ingresado total</div><div class="v">${fmtEUR(rev.total)} €</div></div>
-    <div class="card stat money"><div class="k">📅 Este mes</div><div class="v">${fmtEUR(rev.this_month)} €</div></div>
-    <div class="card stat money"><div class="k">🔁 Recurrente (al mes)</div><div class="v">${fmtEUR(rev.mrr)} €</div>
-      <div class="sub">${rev.paying_tenants} pagando</div></div>
-    <div class="card stat"><div class="k">Negocios</div><div class="v">${info.tenants}</div>
-      ${unpaid?`<div class="sub" style="color:var(--bad);font-weight:700">${unpaid} sin pagar</div>`:'<div class="sub" style="color:var(--ok)">todo al día</div>'}</div>
-    <div class="card stat"><div class="k">Clientes totales</div><div class="v">${info.customers}</div></div>`;
+    <div class="card kpi money main">
+      <div class="kpi-ic">💰</div>
+      <div class="kpi-body"><div class="k">Ingresado total</div><div class="v">${fmtEUR(rev.total)} <small>€</small></div>
+        <div class="sub">desde el inicio</div></div></div>
+    <div class="card kpi money">
+      <div class="kpi-ic">📅</div>
+      <div class="kpi-body"><div class="k">Este mes</div><div class="v">${fmtEUR(rev.this_month)} <small>€</small></div>
+        <div class="sub">${new Date().toLocaleString('es-ES',{month:'long'})}</div></div></div>
+    <div class="card kpi money">
+      <div class="kpi-ic">🔁</div>
+      <div class="kpi-body"><div class="k">Recurrente</div><div class="v">${fmtEUR(rev.mrr)} <small>€/mes</small></div>
+        <div class="sub">${rev.paying_tenants} suscripcion${rev.paying_tenants===1?'':'es'} activa${rev.paying_tenants===1?'':'s'}</div></div></div>
+    <div class="card kpi">
+      <div class="kpi-ic">🏪</div>
+      <div class="kpi-body"><div class="k">Negocios</div><div class="v">${info.tenants}</div>
+        ${unpaid?`<div class="sub" style="color:var(--bad);font-weight:700">⚠ ${unpaid} sin pagar</div>`:'<div class="sub" style="color:var(--ok);font-weight:600">✓ todo al día</div>'}</div></div>
+    <div class="card kpi">
+      <div class="kpi-ic">👥</div>
+      <div class="kpi-body"><div class="k">Clientes totales</div><div class="v">${info.customers}</div>
+        <div class="sub">en todos los negocios</div></div></div>`;
   drawRevChart(rev.months);
   $('#tcount').textContent = `(${tenants.length})`;
   renderTenants();
@@ -63,15 +76,25 @@ async function loadAll(){
 function drawRevChart(months){
   if(!months || !months.some(m=>m.total>0)){ $('#revchart').innerHTML=''; return; }
   const max = Math.max(...months.map(m=>m.total), 1);
-  $('#revchart').innerHTML = `<div class="card" style="padding:16px 18px;margin-top:14px">
-    <div class="sub" style="margin-bottom:10px;letter-spacing:.06em;text-transform:uppercase;font-size:10.5px">Ingresos · últimos 6 meses</div>
-    <div style="display:flex;gap:10px;align-items:flex-end;height:92px">
-      ${months.map(m=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0">
-        <div class="sub" style="font-size:11px;color:var(--gold);font-weight:700">${m.total?fmtEUR(m.total)+'€':''}</div>
-        <div style="width:100%;max-width:46px;height:${Math.max(3, m.total/max*58)}px;border-radius:6px 6px 2px 2px;
-          background:linear-gradient(180deg, var(--gold), #8a6a1e)"></div>
-        <div class="sub" style="font-size:10.5px;white-space:nowrap">${m.label}</div></div>`).join('')}
+  const last = months.length-1;
+  $('#revchart').innerHTML = `<div class="card revcard">
+    <div class="rev-head">
+      <div><div class="rev-title">📈 Ingresos</div><div class="sub">Últimos 6 meses</div></div>
+      <div class="rev-total">${fmtEUR(months.reduce((a,m)=>a+m.total,0))} €<small> en el periodo</small></div>
+    </div>
+    <div class="rev-plot">
+      <div class="rev-grid"><i></i><i></i><i></i></div>
+      <div class="rev-bars">
+        ${months.map((m,i)=>{
+          const h = m.total ? Math.max(10, Math.round(m.total/max*84)) : 3;   // altura en px (área útil ~84px)
+          return `<div class="rev-col" title="${m.label}: ${fmtEUR(m.total)} €">
+            <div class="rev-val">${m.total?fmtEUR(m.total)+'€':''}</div>
+            <div class="rev-bar${i===last?' now':''}${m.total?'':' zero'}" style="--h:${h}px"></div>
+            <div class="rev-lbl${i===last?' now':''}">${m.label}</div>
+          </div>`;}).join('')}
+      </div>
     </div></div>`;
+  requestAnimationFrame(()=>{ document.querySelectorAll('.rev-bar').forEach(b=>b.classList.add('grow')); });
 }
 function renderTenants(){
   const box=$('#tenants');
@@ -108,16 +131,18 @@ function tenantCard(t){
   return `
     <div class="card tcard pay-${t.pay_state}" style="border-left:5px solid ${pl.color}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-        <div style="min-width:0">
+        <div style="min-width:0;flex:1">
           <div class="name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="width:13px;height:13px;border-radius:4px;background:${t.primary};flex:none"></span>
             <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</span>
             <span class="plan-badge" style="background:linear-gradient(135deg,${pl.color},${pl.color2});" title="Plan ${esc(pl.label)} · ${fmtEUR(pl.price)} €/mes">${pl.emoji} ${esc(pl.label)}</span></div>
           <div class="sub" style="margin-top:3px">/r/${t.slug}${t.setup_done?'':' · <strong style="color:var(--gold)">sin configurar</strong>'}${t.active?'':' · <strong style="color:var(--bad)">suspendido</strong>'}</div>
-          <div style="margin-top:8px">${payChip(t)}</div>
-          <div class="sub" style="margin-top:6px"><span style="color:var(--ink);font-weight:700">${fmtEUR(t.price)} €/mes</span>
-            · me ha dado <span style="color:var(--gold);font-weight:700">${fmtEUR(t.revenue_total)} €</span></div>
-        ${t.location?`<div class="sub" style="margin-top:3px"><a href="https://maps.google.com/?q=${encodeURIComponent(t.location)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--plum-700);text-decoration:none" title="Ver en el mapa">📍 ${esc(t.location)} ↗</a></div>`:''}
+          <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            ${payChip(t)}
+            <span class="money-chip fee" title="Cuota mensual">${fmtEUR(t.price)} €/mes</span>
+            <span class="money-chip earn" title="Total que me ha pagado este negocio">↗ ${fmtEUR(t.revenue_total)} €</span>
+          </div>
+        ${t.location?`<div class="sub" style="margin-top:7px"><a href="https://maps.google.com/?q=${encodeURIComponent(t.location)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--plum-700);text-decoration:none" title="Ver en el mapa">📍 ${esc(t.location)} ↗</a></div>`:''}
           ${t.notes?`<div class="sub" style="margin-top:7px;color:var(--ink);background:rgba(255,255,255,.06);
             border:1px solid var(--line);border-radius:8px;padding:6px 10px;white-space:pre-wrap;word-break:break-word">📝 ${esc(t.notes)}</div>`:''}
         </div>
@@ -133,11 +158,11 @@ function tenantCard(t){
           </div>
         </div>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:14px">
-        <button class="btn btn-primary btn-sm" style="flex:1" onclick="handoff(${t.id})">Entregar</button>
-        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="billingForm(${t.id})">Cobro</button>
-        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="tenantCustomers(${t.id})">Clientes</button>
-        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="editForm(${t.id})">Gestionar</button>
+      <div class="tcard-actions">
+        <button class="btn btn-primary btn-sm" onclick="handoff(${t.id})">Entregar</button>
+        <button class="btn btn-ghost btn-sm" onclick="billingForm(${t.id})">Cobro</button>
+        <button class="btn btn-ghost btn-sm" onclick="tenantCustomers(${t.id})">Clientes</button>
+        <button class="btn btn-ghost btn-sm" onclick="editForm(${t.id})">Gestionar</button>
       </div>
     </div>`;
 }

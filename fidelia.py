@@ -104,8 +104,8 @@ DEFAULT_CONFIG = {
     },
     "theme": {"primary": "#6d3b5e", "accent": "#e0a021", "mode": "light", "font": "Inter"},
     "earning": {
-        "xp_per_currency": 1.0, "xp_per_visit": 5, "signup_bonus": 50,
-        "round_mode": "floor", "birthday_bonus": 100,
+        "xp_per_currency": 1.0, "xp_per_visit": 5, "signup_bonus": 3,
+        "round_mode": "floor", "birthday_bonus": 5,
     },
     "levels": [
         {"id": 1, "name": "Bronce",  "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenido al club."},

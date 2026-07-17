@@ -73,6 +73,51 @@
   .stat .v{font-family:'Bricolage Grotesque';font-weight:800}
   .stat.money .v{color:var(--gold)}
   .stat .k{letter-spacing:.06em;text-transform:uppercase;font-size:10.5px}
+  /* ====== KPIs (dinero y totales) ====== */
+  .kpi{display:flex;align-items:center;gap:13px;padding:16px 18px;position:relative;overflow:hidden;
+    transition:transform .15s ease, box-shadow .15s ease}
+  .kpi:hover{transform:translateY(-2px)}
+  .kpi-ic{width:46px;height:46px;flex:none;display:grid;place-items:center;font-size:22px;border-radius:13px;
+    background:rgba(255,255,255,.06);border:1px solid var(--line)}
+  .kpi .k{font-size:10.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+  .kpi .v{font-family:'Bricolage Grotesque';font-weight:800;font-size:27px;line-height:1.15;margin-top:2px}
+  .kpi .v small{font-size:14px;font-weight:700;color:var(--muted)}
+  .kpi .sub{font-size:11.5px;margin-top:2px}
+  .kpi.money{border-color:rgba(242,182,61,.35);
+    background:linear-gradient(150deg, rgba(242,182,61,.10), rgba(242,182,61,.02) 55%)}
+  .kpi.money .kpi-ic{background:linear-gradient(135deg, rgba(242,182,61,.22), rgba(242,182,61,.06));
+    border-color:rgba(242,182,61,.4)}
+  .kpi.money .v{color:var(--gold);text-shadow:0 0 18px rgba(242,182,61,.25)}
+  .kpi.money.main{box-shadow:0 0 0 1px rgba(242,182,61,.28), 0 10px 28px rgba(0,0,0,.3)}
+  /* ====== Gráfico de ingresos ====== */
+  .revcard{padding:18px 20px;margin-top:16px}
+  .rev-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  .rev-title{font-family:'Bricolage Grotesque';font-weight:800;font-size:17px}
+  .rev-total{font-family:'Bricolage Grotesque';font-weight:800;font-size:21px;color:var(--gold)}
+  .rev-total small{font-family:'Inter';font-size:11.5px;color:var(--muted);font-weight:600}
+  .rev-plot{position:relative;height:130px}
+  .rev-grid{position:absolute;inset:0 0 22px 0;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none}
+  .rev-grid i{display:block;border-top:1px dashed rgba(255,255,255,.07)}
+  .rev-bars{position:absolute;inset:0;display:flex;gap:12px;align-items:flex-end}
+  .rev-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}
+  .rev-val{font-size:11px;color:var(--gold);font-weight:800;margin-bottom:4px;white-space:nowrap}
+  .rev-bar{width:100%;max-width:52px;height:3px;border-radius:8px 8px 3px 3px;
+    background:linear-gradient(180deg, #f2b63d, #8a6a1e);
+    transition:height .8s cubic-bezier(.2,.8,.25,1);position:relative;overflow:hidden}
+  .rev-bar.grow{height:var(--h)}
+  .rev-bar.now{background:linear-gradient(180deg, #ffd97a, #c8942a);box-shadow:0 0 16px rgba(242,182,61,.45)}
+  .rev-bar.zero{background:rgba(255,255,255,.10)}
+  .rev-bar::after{content:'';position:absolute;inset:0;
+    background:linear-gradient(180deg, rgba(255,255,255,.35), transparent 45%)}
+  .rev-lbl{font-size:10.5px;color:var(--muted);margin-top:6px;white-space:nowrap}
+  .rev-lbl.now{color:var(--gold);font-weight:800}
+  /* ====== Chips de dinero en tarjetas de negocio ====== */
+  .money-chip{font-size:12px;font-weight:800;padding:4px 10px;border-radius:20px;white-space:nowrap}
+  .money-chip.fee{color:var(--ink);background:rgba(255,255,255,.07);border:1px solid var(--line)}
+  .money-chip.earn{color:#3a2600;background:linear-gradient(135deg,#f2b63d,#e0a021);
+    box-shadow:0 2px 10px rgba(242,182,61,.3)}
+  .tcard-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:6px;margin-top:14px;
+    padding-top:12px;border-top:1px solid var(--line)}
   .tcard{padding:18px;border-width:2px;transition:transform .15s ease, box-shadow .15s ease}
   .tcard:hover{transform:translateY(-3px)}
   .tcard.pay-paid{border-color:var(--ok);
@@ -181,6 +226,6 @@
 
 <div id="modal-root"></div>
 <div id="toasts"></div>
-<script src="/static/platform.js?v=8ee2f9cd"></script>
+<script src="/static/platform.js?v=f9fe6e1f"></script>
 </body>
 </html>

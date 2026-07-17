@@ -136,6 +136,7 @@ async function boot(){
   const showChain = CONFIG._plan==='cadena' && !!CONFIG._chain;
   $('#nav-chain')?.classList.toggle('hide', !showChain);
   if(!CONFIG.setup_done){ showSetupWizard(); return; }
+  loadTemplates();   // precargar plantillas de negocio para el editor de Programa
   setView('charge');
   // Comprobar si el negocio debe aceptar los términos legales
   checkLegal();
@@ -193,38 +194,47 @@ function mdToHtml(md){
 }
 
 /* ================= ASISTENTE DE CONFIGURACIÓN INICIAL ================= */
-function showSetupWizard(){
+async function showSetupWizard(){
+  let tpls=[];
+  try{ tpls=(await api('/api/templates')).templates||[]; }catch{}
+  const cards = tpls.map((t,i)=>`
+    <label class="tpl-pick${i===0?' sel':''}">
+      <input type="radio" name="sw-tpl" value="${t.key}" ${i===0?'checked':''} onchange="selTpl(this)">
+      <span class="tpl-emoji">${t.emoji||'🏪'}</span>
+      <span class="tpl-name">${esc(t.label)}</span>
+      <span class="tpl-desc">${esc(t.desc)}</span>
+    </label>`).join('');
   $('#modal-root').innerHTML = `
     <div class="overlay" style="background:rgba(35,28,33,.6)">
-      <div class="card modal" style="max-width:480px">
+      <div class="card modal" style="max-width:560px">
         <div class="brand" style="margin-bottom:6px"><div class="brand-mark">F</div><div class="brand-name">Fidelia</div></div>
-        <p class="sub" style="margin-bottom:20px">Configura tu negocio en 1 minuto. Podrás cambiarlo todo después.</p>
+        <p class="sub" style="margin-bottom:18px">Configura tu negocio en 1 minuto. Podrás cambiarlo todo después.</p>
         <div class="field"><label>Nombre del negocio *</label><input id="sw-name" value="${esc(CONFIG.business.name||'')}" placeholder="Ej. Cafetería Central"></div>
         <div class="field"><label>Eslogan</label><input id="sw-tag" value="${esc(CONFIG.business.tagline||'')}" placeholder="Cada visita suma"></div>
         <div class="form-grid">
           <div class="field"><label>Moneda</label><input id="sw-cur" value="${esc(CONFIG.business.currency_symbol||'€')}"></div>
           <div class="field"><label>Color principal</label><input id="sw-color" type="color" class="swatch" value="${CONFIG.theme.primary||'#6d3b5e'}" style="width:100%;height:40px"></div>
         </div>
-        <div class="field"><label>Tipo de negocio (aplica niveles y recompensas sugeridos)</label>
-          <select id="sw-tpl">
-            <option value="">Mantener los actuales</option>
-            <option value="restaurante">Restaurante — ticket 20–40 €</option>
-            <option value="cafeteria">Cafetería / Brunch — ticket 5–15 €</option>
-            <option value="bar">Bar de tapas — ticket 10–25 €</option>
-          </select></div>
-        <div class="field"><label>Cambiar contraseña de acceso (opcional)</label>
+        <label style="font-weight:700;font-size:14px;display:block;margin:6px 0 4px">¿Qué tipo de negocio tienes?</label>
+        <div class="sub" style="margin-bottom:10px">Elige y te dejamos niveles y recompensas ya preparados. Podrás ajustarlos.</div>
+        <div class="tpl-grid">${cards}</div>
+        <div class="field" style="margin-top:14px"><label>Cambiar contraseña de acceso (opcional)</label>
           <input id="sw-pass" type="password" placeholder="Deja vacío para mantener la actual"></div>
         <button class="btn btn-primary" style="width:100%" onclick="finishSetup()">Empezar a usar Fidelia</button>
         <p id="sw-err" class="sub" style="color:var(--bad);margin-top:10px"></p>
       </div>
     </div>`;
 }
+function selTpl(radio){
+  document.querySelectorAll('.tpl-pick').forEach(el=>el.classList.remove('sel'));
+  radio.closest('.tpl-pick')?.classList.add('sel');
+}
 async function finishSetup(){
   const name = $('#sw-name').value.trim();
   if(!name){ $('#sw-err').textContent='Pon el nombre de tu negocio.'; return; }
   const body = {business_name:name, tagline:$('#sw-tag').value.trim(),
     currency_symbol:$('#sw-cur').value.trim()||'€', primary:$('#sw-color').value,
-    template:$('#sw-tpl')?.value||''};
+    template:(document.querySelector('input[name="sw-tpl"]:checked')?.value||'')};
   const pw = $('#sw-pass').value; if(pw) body.new_password = pw;
   try{
     const r = await api('/api/setup',{method:'POST',body});
@@ -391,7 +401,7 @@ async function renderPromo(){
       </div>
       <div id="pr-out" style="margin-top:10px"></div>
     </div>
-    <p class="hint">💡 Idea: activa x2 los martes y miércoles (los días más flojos de la hostelería) y anúncialo. Verás cómo suben las visitas.</p>`;
+    <p class="hint">💡 Idea: activa x2 los martes y miércoles (los días más flojos) y anúncialo. Verás cómo suben las visitas.</p>`;
 }
 async function savePromo(enabled){
   const out=$('#pr-out');
@@ -794,7 +804,7 @@ function progEarning(){
       <div class="pill">Ejemplo real: una cuenta de 25 ${CUR} = <strong>${e.round_mode==='floor'?Math.floor(25*e.xp_per_currency):Math.round(25*e.xp_per_currency)} puntos</strong>. La casilla "visita" solo suma al contador de visitas, no da puntos.</div>
     </div>
     <div class="card section-card">
-      <h3>Opciones para tus clientes</h3><div class="hint">Qué pueden ver y hacer desde el QR de mesa.</div>
+      <h3>Opciones para tus clientes</h3><div class="hint">Qué pueden ver y hacer desde el QR.</div>
       ${chk('public_ranking','Ranking público','Tabla con los clientes con más puntos. Motiva la competición sana.')}
       ${chk('self_lookup','Consulta de puntos','Cada cliente puede mirar sus puntos con su teléfono o código.')}
       ${chk('require_phone','Recomendar teléfono en el alta','Facilita encontrar al cliente al cobrar.')}
@@ -811,7 +821,7 @@ function progEarning(){
           <option value="full" ${f.leaderboard_names==='full'?'selected':''}>Nombre completo</option>
           <option value="anonymized" ${f.leaderboard_names==='anonymized'?'selected':''}>Anónimo (Cliente #1)</option>
         </select>
-        <div class="sub" style="margin-top:5px">Con «Apodo», el cliente elige el suyo desde el QR de mesa (o el personal en su ficha); mientras no lo elija, sale como Nombre + inicial. Nunca se muestran teléfonos.</div></div>
+        <div class="sub" style="margin-top:5px">Con «Apodo», el cliente elige el suyo desde el QR (o el personal en su ficha); mientras no lo elija, sale como Nombre + inicial. Nunca se muestran teléfonos.</div></div>
     </div>${liveBar('any')}`;
 }
 function progLevels(){
@@ -852,15 +862,18 @@ function progRewards(){
       ${suggestBar('rewards')}
     </div>${liveBar('rewards')}`;
 }
+let _TPLS_CACHE = null;
+async function loadTemplates(){
+  if(_TPLS_CACHE) return _TPLS_CACHE;
+  try{ _TPLS_CACHE=(await api('/api/templates')).templates||[]; }catch{ _TPLS_CACHE=[]; }
+  return _TPLS_CACHE;
+}
 function suggestBar(what){
+  const opts=(_TPLS_CACHE||[]).map(t=>`<option value="${t.key}">${t.emoji||'🏪'} ${esc(t.label)}</option>`).join('');
   return `<div style="margin-top:16px;padding:12px;border:1px dashed var(--line);border-radius:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <strong style="font-size:13.5px">Sugerencias:</strong>
-    <select id="sug-${what}" style="max-width:260px">
-      <option value="restaurante">Restaurante — ticket 20–40 €</option>
-      <option value="cafeteria">Cafetería / Brunch — ticket 5–15 €</option>
-      <option value="bar">Bar de tapas — ticket 10–25 €</option>
-    </select>
-    <button class="btn btn-ghost btn-sm" onclick="applyTemplate('${what}')">Aplicar sugerencia</button>
+    <strong style="font-size:13.5px">Plantillas por tipo de negocio:</strong>
+    <select id="sug-${what}" style="max-width:280px">${opts||'<option value="">—</option>'}</select>
+    <button class="btn btn-ghost btn-sm" onclick="applyTemplate('${what}')">Aplicar plantilla</button>
     <span class="sub">Sustituye la lista actual; luego puedes retocarla.</span></div>`;
 }
 async function applyTemplate(what){
@@ -947,9 +960,9 @@ async function renderSettings(){
       <button class="btn btn-primary" onclick="changePw()">Actualizar contraseña</button>
     </div>
     <div class="card section-card" style="border-left:4px solid var(--gold)">
-      <h3>🖨 Cartel para mesas</h3>
-      <div class="hint">Imprime un A4 con 4 carteles recortables con tu QR y tus colores. Ponlos en mesas, barra o caja.</div>
-      <button class="btn btn-primary" onclick="printPoster()">Imprimir cartel de mesas</button>
+      <h3>🖨 Cartel con tu QR</h3>
+      <div class="hint">Imprime un A4 con 4 carteles recortables con tu QR y tus colores. Ponlos en el mostrador, la caja o donde tus clientes los vean.</div>
+      <button class="btn btn-primary" onclick="printPoster()">Imprimir cartel</button>
     </div>
     <div class="card section-card">
       <h3>📄 Documentos legales</h3>
@@ -1005,7 +1018,7 @@ async function loadDevices(){
           <code class="codebox">${base}/admin</code>
         </div>
         <div style="text-align:center">
-          <strong>Clientes (cartel/mesa)</strong>
+          <strong>Clientes (cartel/QR)</strong>
           <div style="margin:12px 0">${qrImg(base+'/',160)}</div>
           <code class="codebox">${base}/</code>
         </div>
@@ -1080,24 +1093,67 @@ async function quickEarn(c, amt, out, isNew=false){
   }
   const lvl = r.level ? `<span class="badge" style="background:${r.level.color};color:#fff">${esc(r.level.name)}</span>` : '';
   const mult = r.multiplier && r.multiplier>1 ? r.multiplier : 0;
-  // Premios que este cliente ya puede canjear (para que el personal se lo diga)
+  // Premios que este cliente ya puede canjear
   const lvlId = r.level ? r.level.id : 1;
   const canje = (CONFIG.rewards||[]).filter(w=>w.active && w.cost_xp<=r.xp && (w.min_level||1)<=lvlId && (w.stock===-1||w.stock>0));
-  out.innerHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px;background:#f2faf5;border:1px solid #cfe9da;border-radius:10px">
-    <strong>${isNew?'✓ Alta y cobro:':'✓'} ${esc(r.name)}</strong> ${lvl}
-    ${gained?`<span>+${gained} pts</span>`:''}
-    ${mult?`<span class="badge" style="background:#e8590c;color:#fff">🔥 x${mult} campaña</span>`:''}
-    <span class="sub">total: <strong>${r.xp} pts</strong>${r.next_level?` · le faltan ${r.xp_to_next} para ${esc(r.next_level.name)}`:''}</span>
-    ${r.level_up?`<span class="badge" style="background:var(--gold);color:#3a2600">🎉 ¡Sube a ${esc(r.level_up.name)}!</span>`:''}
-    <a href="#" class="sub" style="color:var(--plum);font-weight:600" onclick="event.preventDefault();setView('customers');customerDetail(${r.id})">ver ficha</a>
-    ${canje.length?`<div style="width:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:8px;border-top:1px dashed #cfe9da">
-      <span style="font-weight:700;color:#1c6b45">🎁 Puede canjear:</span>
-      <span class="sub">${canje.slice(0,3).map(w=>esc(w.name)).join(' · ')}${canje.length>3?` y ${canje.length-3} más`:''}</span>
-      <button class="btn btn-gold btn-sm" onclick="redeemPicker(${r.id})">Canjear ahora</button>
-    </div>`:''}
-  </div>`;
+  // Progreso al siguiente nivel
+  const pct = r.next_level ? Math.max(2, Math.min(100, r.progress_pct||0)) : 100;
+  out.innerHTML = `
+    <div class="charge-result${canje.length?' has-reward':''}">
+      <div class="cr-top">
+        <div class="cr-check">✓</div>
+        <div style="flex:1;min-width:0">
+          <div class="cr-name">${esc(r.name)} ${lvl}</div>
+          <div class="cr-sub">${isNew?'Alta y primer cobro':'Puntos sumados'}</div>
+        </div>
+        ${gained?`<div class="cr-gain">+${gained}<small>pts</small></div>`:''}
+      </div>
+      ${mult?`<div class="cr-mult">🔥 Campaña x${mult} aplicada</div>`:''}
+      ${r.level_up?`<div class="cr-levelup">🎉 ¡${esc(r.name)} sube a ${esc(r.level_up.name)}!</div>`:''}
+      ${r.next_level?`
+        <div class="cr-progress">
+          <div class="cr-prog-labels"><span>${esc(r.level?r.level.name:'')}</span><span>${esc(r.next_level.name)}</span></div>
+          <div class="cr-prog-bar"><div class="cr-prog-fill" style="width:0%" data-pct="${pct}"></div></div>
+          <div class="cr-prog-text">Le faltan <strong>${r.xp_to_next} pts</strong> para <strong>${esc(r.next_level.name)}</strong></div>
+        </div>`:`<div class="cr-progress"><div class="cr-prog-text" style="text-align:center">🏆 ¡Nivel máximo alcanzado!</div></div>`}
+      <div class="cr-total">Total acumulado: <strong>${r.xp} pts</strong></div>
+      ${canje.length?`
+        <div class="cr-reward">
+          <div class="cr-reward-head">🎁 ¡Tiene ${canje.length===1?'un premio':canje.length+' premios'} para canjear!</div>
+          <div class="cr-reward-list">${canje.slice(0,3).map(w=>`<span class="cr-reward-chip">${esc(w.name)}</span>`).join('')}${canje.length>3?`<span class="cr-reward-chip">+${canje.length-3}</span>`:''}</div>
+          <button class="btn btn-gold" style="width:100%;margin-top:4px" onclick="redeemPicker(${r.id})">🎁 Canjear ahora</button>
+        </div>`:''}
+      <a href="#" class="cr-link" onclick="event.preventDefault();setView('customers');customerDetail(${r.id})">ver ficha completa →</a>
+    </div>`;
+  // Animar la barra de progreso tras pintar
+  requestAnimationFrame(()=>{ const f=out.querySelector('.cr-prog-fill'); if(f) f.style.width=(f.dataset.pct||0)+'%'; });
+  // Celebración: confeti si sube de nivel o si tiene premio para canjear
+  if(r.level_up) confetti('gold');
+  else if(canje.length) confetti('soft');
   $('#qk-q').value=''; $('#qk-amt').value='';
   $('#qk-q').focus();
+}
+
+// Confeti ligero sin librerías: cae desde arriba y se limpia solo
+function confetti(kind='soft'){
+  const colors = kind==='gold'
+    ? ['#e0a021','#f5c451','#ffd97a','#8d4470','#fff']
+    : ['#2f9e63','#57c98a','#8d4470','#e0a021','#fff'];
+  const n = kind==='gold' ? 90 : 45;
+  let host = document.getElementById('confetti-host');
+  if(!host){ host=document.createElement('div'); host.id='confetti-host'; document.body.appendChild(host); }
+  const frag=document.createDocumentFragment();
+  for(let i=0;i<n;i++){
+    const p=document.createElement('i');
+    const size=6+Math.random()*7;
+    p.style.cssText=`position:fixed;top:-20px;left:${Math.random()*100}vw;width:${size}px;height:${size*0.6}px;
+      background:${colors[i%colors.length]};opacity:.95;border-radius:2px;pointer-events:none;z-index:9999;
+      transform:rotate(${Math.random()*360}deg);
+      animation:confetti-fall ${1.1+Math.random()*1.1}s cubic-bezier(.3,.6,.5,1) ${Math.random()*0.3}s forwards`;
+    frag.appendChild(p);
+  }
+  host.appendChild(frag);
+  setTimeout(()=>{ host.innerHTML=''; }, 2800);
 }
 
 function fmt(n){ return (Number(n)||0).toLocaleString('es-ES',{minimumFractionDigits:0,maximumFractionDigits:2}); }

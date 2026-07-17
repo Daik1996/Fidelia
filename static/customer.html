@@ -62,6 +62,31 @@
   .rank-row.top .rank-n{background:var(--accent);color:#3a2600}
   .rank-xp{margin-left:auto;font-weight:700}
   .err{color:#c0392b;font-size:14px;margin-top:10px;text-align:center}
+  /* Próxima recompensa (motivador, animado) */
+  .next-reward{display:flex;gap:14px;align-items:center;margin-top:14px;padding:16px;border-radius:16px;
+    background:linear-gradient(145deg,#fff,#faf3fb);border:1.5px solid var(--line);
+    box-shadow:0 6px 22px rgba(0,0,0,.06);animation:nr-in .5s cubic-bezier(.2,.9,.3,1.3)}
+  .next-reward.ready{background:linear-gradient(145deg,#fff8e8,#fdeecb);border-color:#f0d48a;
+    box-shadow:0 8px 28px rgba(224,160,33,.28)}
+  @keyframes nr-in{0%{opacity:0;transform:translateY(12px)}100%{opacity:1;transform:none}}
+  .nr-emoji{font-size:34px;flex:none;animation:nr-bounce 2s ease-in-out infinite}
+  @keyframes nr-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+  .nr-body{flex:1;min-width:0}
+  .nr-title{font-size:12.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .nr-reward,.nr-body .nr-title + .nr-reward{font-size:18px;font-weight:800;color:var(--ink);margin:2px 0 8px}
+  .next-reward.ready .nr-title{color:#a56a00;font-size:16px;text-transform:none}
+  .nr-sub{font-weight:700;color:var(--ink);font-size:14px}
+  .nr-hint{font-size:13px;color:#a56a00;margin-top:4px;font-weight:600}
+  .nr-bar{height:14px;background:#eee2ea;border-radius:10px;overflow:hidden}
+  .nr-fill{height:100%;border-radius:10px;background:linear-gradient(90deg,var(--primary),var(--accent));
+    transition:width 1.1s cubic-bezier(.2,.8,.3,1) .25s;position:relative;box-shadow:0 0 10px rgba(224,160,33,.45)}
+  .nr-fill::after{content:'';position:absolute;inset:0;border-radius:10px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.6),transparent);
+    animation:nr-shine 1.8s ease-in-out infinite}
+  @keyframes nr-shine{0%{transform:translateX(-100%)}60%,100%{transform:translateX(100%)}}
+  @keyframes confetti-fall{0%{transform:translateY(0) rotate(0);opacity:1}
+    100%{transform:translateY(105vh) rotate(680deg);opacity:.9}}
+  .nr-falta{font-size:13.5px;margin-top:7px;color:var(--ink)}
   .promo-banner{background:linear-gradient(100deg,#e8590c,#f08c00);color:#fff;padding:12px 16px;
     border-radius:12px;margin-bottom:16px;text-align:center;font-size:14.5px;
     box-shadow:0 4px 16px rgba(232,89,12,.35);animation:promo-glow 2s ease-in-out infinite}
@@ -122,10 +147,13 @@
           <div style="font-size:20px;font-weight:800" id="m-name"></div></div>
         <span class="lvl-badge" id="m-level"></span>
       </div>
-      <div class="xp-big"><span id="m-xp">0</span> <span style="font-size:20px;opacity:.7">XP</span></div>
+      <div class="xp-big"><span id="m-xp">0</span> <span style="font-size:20px;opacity:.7">pts</span></div>
       <div id="m-next" class="muted" style="color:rgba(255,255,255,.85)"></div>
       <div class="progress" id="m-prog-wrap"><span id="m-prog" style="width:0%"></span></div>
     </div>
+
+    <!-- Próxima recompensa: destacada y motivadora -->
+    <div id="next-reward" class="hide"></div>
 
     <!-- Tarjeta / carné digital con QR -->
     <div class="card" style="text-align:center;margin-top:14px">
@@ -168,6 +196,6 @@
   <button onclick="dismissInstall()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer">×</button>
 </div>
 
-<script src="/static/customer.js?v=202607161911"></script>
+<script src="/static/customer.js?v=8ee2f9cd"></script>
 </body>
 </html>

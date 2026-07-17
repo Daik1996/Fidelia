@@ -58,6 +58,24 @@ def data_dir():
 BASE_DIR = resource_dir()
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
+
+def _assets_hash():
+    """Hash corto y opaco del contenido de los JS. Rompe la caché solo cuando cambian,
+    sin exponer fechas ni versiones a negocios/clientes."""
+    h = hashlib.sha256()
+    try:
+        for name in ("admin.js", "platform.js", "customer.js"):
+            p = os.path.join(STATIC_DIR, name)
+            if os.path.isfile(p):
+                with open(p, "rb") as f:
+                    h.update(f.read())
+    except Exception:
+        return "1"
+    return h.hexdigest()[:8]
+
+
+ASSETS_HASH = _assets_hash()
+
 DB_PATH = os.path.abspath(os.environ.get("FIDELIA_DB") or os.path.join(data_dir(), "fidelia.db"))
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
@@ -91,17 +109,17 @@ DEFAULT_CONFIG = {
     },
     "levels": [
         {"id": 1, "name": "Bronce",  "min_xp": 0,    "color": "#b08d57", "perk": "Bienvenido al club."},
-        {"id": 2, "name": "Plata",   "min_xp": 300,  "color": "#9aa4ad", "perk": "Aperitivo de cortesía en cada visita."},
-        {"id": 3, "name": "Oro",     "min_xp": 800,  "color": "#e0a021", "perk": "Postre gratis en tu cumpleaños."},
-        {"id": 4, "name": "Platino", "min_xp": 2000, "color": "#6d3b5e", "perk": "10% en carta y mesa prioritaria."},
+        {"id": 2, "name": "Plata",   "min_xp": 300,  "color": "#9aa4ad", "perk": "Ventaja especial en cada visita."},
+        {"id": 3, "name": "Oro",     "min_xp": 800,  "color": "#e0a021", "perk": "Regalo en tu cumpleaños."},
+        {"id": 4, "name": "Platino", "min_xp": 2000, "color": "#6d3b5e", "perk": "10% de descuento y atención prioritaria."},
     ],
     "rewards": [
-        {"id": 1, "name": "Café o chupito",     "type": "xp", "cost_xp": 80,   "min_level": 1, "stock": -1, "active": True, "desc": "Al terminar tu comida."},
-        {"id": 2, "name": "Postre casero",      "type": "xp", "cost_xp": 250,  "min_level": 1, "stock": -1, "active": True, "desc": "Elige entre los postres del día."},
-        {"id": 3, "name": "Entrante a elegir",  "type": "xp", "cost_xp": 350,  "min_level": 2, "stock": -1, "active": True, "desc": "Cualquier entrante de la carta."},
-        {"id": 4, "name": "Botella de vino",    "type": "xp", "cost_xp": 600,  "min_level": 2, "stock": 20, "active": True, "desc": "Vino de la casa para tu mesa."},
-        {"id": 5, "name": "10% en tu cuenta",   "type": "xp", "cost_xp": 800,  "min_level": 3, "stock": -1, "active": True, "desc": "Descuento aplicado a la cuenta de hoy."},
-        {"id": 6, "name": "Menú para dos",      "type": "xp", "cost_xp": 1800, "min_level": 4, "stock": -1, "active": True, "desc": "Menú degustación para dos personas."},
+        {"id": 1, "name": "Detalle de bienvenida", "type": "xp", "cost_xp": 80,   "min_level": 1, "stock": -1, "active": True, "desc": "Un pequeño obsequio."},
+        {"id": 2, "name": "Regalo pequeño",        "type": "xp", "cost_xp": 250,  "min_level": 1, "stock": -1, "active": True, "desc": "Elige entre las opciones disponibles."},
+        {"id": 3, "name": "5% de descuento",       "type": "xp", "cost_xp": 350,  "min_level": 2, "stock": -1, "active": True, "desc": "Aplicado a tu compra de hoy."},
+        {"id": 4, "name": "Regalo mediano",        "type": "xp", "cost_xp": 600,  "min_level": 2, "stock": 20, "active": True, "desc": "Un obsequio de mayor valor."},
+        {"id": 5, "name": "10% de descuento",      "type": "xp", "cost_xp": 800,  "min_level": 3, "stock": -1, "active": True, "desc": "Aplicado a tu compra de hoy."},
+        {"id": 6, "name": "Regalo premium",        "type": "xp", "cost_xp": 1800, "min_level": 4, "stock": -1, "active": True, "desc": "Nuestra mejor recompensa."},
     ],
     "features": {
         "public_ranking": True, "leaderboard_names": "first_initial",
@@ -2468,7 +2486,8 @@ STATIC_CACHE = {".png", ".svg", ".ico", ".jpg"}   # solo imágenes: JS/CSS siemp
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Fidelia/2.1"
+    server_version = "Fidelia"
+    sys_version = ""   # no exponer la versión de Python ni del servidor
     protocol_version = "HTTP/1.1"   # keep-alive: mucho más rápido en móvil/tablet
 
     def log_message(self, *args):
@@ -2540,6 +2559,10 @@ class Handler(BaseHTTPRequestHandler):
         ctype = CONTENT_TYPES.get(ext, "application/octet-stream")
         with open(path, "rb") as f:
             data = f.read()
+        # En los HTML, sustituir el marcador de versión de los <script> por un hash opaco
+        # (evita exponer fechas/versiones a negocios y clientes en el código fuente).
+        if ext == ".html":
+            data = re.sub(rb'(\.js)\?v=[0-9A-Za-z]+', rb'\1?v=' + ASSETS_HASH.encode(), data)
         data, enc = self._maybe_gzip(data, ctype)
         self.send_response(200)
         self.send_header("Content-Type", ctype)

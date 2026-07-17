@@ -190,7 +190,7 @@ async function createForm(){
       <div class="sub">Solo necesitas el nombre: usuario y contraseña se generan solos.</div></div>
     <span class="close" onclick="closeModal()">×</span></div>
     <div class="field"><label>Nombre del negocio *</label>
-      <input id="nt-name" placeholder="Ej. La Parrilla de Ana" oninput="ntAuto()"></div>
+      <input id="nt-name" placeholder="Ej. Cafetería Central, Peluquería Ana…" oninput="ntAuto()"></div>
     <div class="form-grid">
       <div class="field"><label>Usuario (se genera del nombre)</label><input id="nt-user" autocomplete="off"></div>
       <div class="field"><label>Contraseña
@@ -268,7 +268,7 @@ function handoffData(slug, name, user, pass){
     <div class="form-grid" style="text-align:center">
       <div><strong>1 · Panel del personal</strong><div style="margin:10px 0">${qrImg(admin,150)}</div>
         <code class="codebox">${admin}</code></div>
-      <div><strong>2 · Clientes (mesa/cartel)</strong><div style="margin:10px 0">${qrImg(pub,150)}</div>
+      <div><strong>2 · Clientes (QR/cartel)</strong><div style="margin:10px 0">${qrImg(pub,150)}</div>
         <code class="codebox">${pub}</code></div>
     </div>
     <div class="card" style="padding:14px;margin-top:16px;background:rgba(255,255,255,.045)">
@@ -299,7 +299,7 @@ function printHandoff(){
   <ol><li>Escanea el QR del panel con la tablet del local y entra con tus claves.</li>
   <li>Sigue el asistente: nombre, color y moneda. Cambia la contraseña si quieres.</li>
   <li>«Añadir a pantalla de inicio» para tenerlo como app.</li>
-  <li>Imprime el QR de clientes y ponlo en mesas o mostrador.</li>
+  <li>Imprime el QR de clientes y ponlo donde tus clientes lo vean (mostrador, caja, mesas…).</li>
   <li>En cada cuenta: busca al cliente (o dalo de alta) y registra el importe. Los puntos, niveles y premios van solos.</li></ol></div>
   <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`);
   w.document.close();

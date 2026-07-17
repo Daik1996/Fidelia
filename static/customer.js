@@ -143,7 +143,7 @@ function showCustomer(data){
   $('#m-xp').textContent = c.xp;
   $('#m-level').textContent = c.level ? c.level.name : '';
   $('#m-code').textContent = c.code;
-  // QR carné digital: al escanearlo, abre el panel del restaurante con ESTE cliente ya cargado
+  // QR carné digital: al escanearlo, abre el panel del negocio con ESTE cliente ya cargado
   try{
     const qrUrl = location.origin + TBASE + '/admin?code=' + encodeURIComponent(c.code);
     const qr = qrcode(0, 'M'); qr.addData(qrUrl); qr.make();
@@ -151,7 +151,7 @@ function showCustomer(data){
     const img = $('#m-qr').querySelector('img'); if(img){ img.style.width='170px'; img.style.height='170px'; img.style.display='block'; }
   }catch(e){ $('#m-qr').innerHTML = '<div class="muted">'+esc(c.code)+'</div>'; }
   if(c.next_level){
-    $('#m-next').textContent = `${c.xp_to_next} XP para ${c.next_level.name}`;
+    $('#m-next').textContent = `${c.xp_to_next} pts para ${c.next_level.name}`;
     $('#m-prog').style.width = (c.progress_pct||0) + '%';
     $('#m-prog-wrap').classList.remove('hide');
   }else{
@@ -166,9 +166,10 @@ function showCustomer(data){
           <strong>${esc(r.name)}</strong>
           <div class="muted">${esc(r.desc||'')}${r.min_level?` · nivel ${r.min_level}+`:''}</div>
         </div>
-        <span class="cost">${r.cost_xp} XP</span>
+        <span class="cost">${r.cost_xp} pts</span>
       </div>
     </div>`).join('') : '<p class="muted">Aún no hay recompensas disponibles.</p>';
+  renderNextReward(c, data.rewards);
   // Seguridad: crear o cambiar el PIN de acceso
   window._HAS_PIN = !!c.has_pin;
   const sec = $('#m-security');
@@ -264,6 +265,48 @@ async function installApp(){
 function dismissInstall(){ $('#install-banner')?.classList.add('hide'); try{localStorage.setItem('fid_install_off','1');}catch{} }
 // Mostrar el aviso también cuando NO hay evento nativo (iPhone) tras cargar
 window.addEventListener('load', ()=> setTimeout(showInstallBanner, 1500));
+
+/* ---------- Próxima recompensa: cuánto falta, motivador y animado ---------- */
+function renderNextReward(c, rewards){
+  const box = document.getElementById('next-reward');
+  if(!box) return;
+  const lvlId = c.level ? c.level.id : 1;
+  const xp = c.xp || 0;
+  // ¿Ya tiene alguna lista para canjear?
+  const ready = (rewards||[]).filter(r=>r.affordable);
+  if(ready.length){
+    const names = ready.slice(0,2).map(r=>esc(r.name)).join(' · ');
+    box.className = 'next-reward ready';
+    box.innerHTML = `
+      <div class="nr-emoji">🎁</div>
+      <div class="nr-body">
+        <div class="nr-title">¡Ya puedes canjear ${ready.length===1?'un premio':ready.length+' premios'}!</div>
+        <div class="nr-sub">${names}${ready.length>2?` y ${ready.length-2} más`:''}</div>
+        <div class="nr-hint">Pídelo en tu próxima visita 🎉</div>
+      </div>`;
+    box.classList.remove('hide');
+    if(!window._celebrated){ window._celebrated=true; confetti('gold'); }
+    return;
+  }
+  // Si no, la más cercana que aún no puede pagar (y cuyo nivel ya alcanza)
+  const upcoming = (rewards||[])
+    .filter(r=>!r.affordable && (!r.min_level || r.min_level<=lvlId) && r.cost_xp>xp)
+    .sort((a,b)=>a.cost_xp-b.cost_xp)[0];
+  if(!upcoming){ box.classList.add('hide'); return; }
+  const falta = Math.max(0, upcoming.cost_xp - xp);
+  const pct = Math.max(3, Math.min(100, Math.round(100*xp/upcoming.cost_xp)));
+  box.className = 'next-reward';
+  box.innerHTML = `
+    <div class="nr-emoji">🎯</div>
+    <div class="nr-body">
+      <div class="nr-title">Tu próxima recompensa</div>
+      <div class="nr-reward">${esc(upcoming.name)}</div>
+      <div class="nr-bar"><div class="nr-fill" data-pct="${pct}" style="width:0%"></div></div>
+      <div class="nr-falta">Te faltan <strong>${falta} pts</strong> · ¡ya casi!</div>
+    </div>`;
+  box.classList.remove('hide');
+  requestAnimationFrame(()=>{ const f=box.querySelector('.nr-fill'); if(f) f.style.width=(f.dataset.pct||0)+'%'; });
+}
 
 function reset(){
   $('#mine').classList.add('hide');
@@ -391,4 +434,26 @@ function legalMd(md){
     if(/^\s*-\s/m.test(bl)) return '<ul style="padding-left:20px">'+bl.split(/\n/).filter(l=>l.trim().startsWith('- ')).map(l=>'<li>'+inl(l.replace(/^\s*-\s/,''))+'</li>').join('')+'</ul>';
     return '<p>'+inl(bl).replace(/\n/g,'<br>')+'</p>';
   }).join('');
+}
+
+/* ---------- Confeti gratificante (sin librerías) ---------- */
+function confetti(kind='gold'){
+  const colors = kind==='gold'
+    ? ['#e0a021','#f5c451','#ffd97a','#8d4470','#fff']
+    : ['#2f9e63','#57c98a','#8d4470','#e0a021','#fff'];
+  const n=80;
+  let host=document.getElementById('confetti-host');
+  if(!host){ host=document.createElement('div'); host.id='confetti-host'; document.body.appendChild(host); }
+  const frag=document.createDocumentFragment();
+  for(let i=0;i<n;i++){
+    const p=document.createElement('i');
+    const size=6+Math.random()*7;
+    p.style.cssText=`position:fixed;top:-20px;left:${Math.random()*100}vw;width:${size}px;height:${size*0.6}px;`
+      +`background:${colors[i%colors.length]};opacity:.95;border-radius:2px;pointer-events:none;z-index:9999;`
+      +`transform:rotate(${Math.random()*360}deg);`
+      +`animation:confetti-fall ${1.1+Math.random()*1.1}s cubic-bezier(.3,.6,.5,1) ${Math.random()*0.3}s forwards`;
+    frag.appendChild(p);
+  }
+  host.appendChild(frag);
+  setTimeout(()=>{ host.innerHTML=''; }, 2900);
 }

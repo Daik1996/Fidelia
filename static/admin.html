@@ -82,6 +82,16 @@
   .main > *{animation:viewfade .18s ease}
   .row-click{transition:background .12s ease}
   .row-click:hover{background:rgba(141,68,112,.05);cursor:pointer}
+  /* Selector de tipo de negocio (asistente inicial) */
+  .tpl-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:230px;overflow:auto;padding:2px}
+  .tpl-pick{display:flex;flex-direction:column;gap:2px;border:2px solid var(--line);border-radius:12px;
+    padding:10px 12px;cursor:pointer;position:relative;transition:.12s}
+  .tpl-pick:hover{border-color:var(--plum-300,#c9a3ba)}
+  .tpl-pick.sel{border-color:var(--plum,#8d4470);background:rgba(141,68,112,.06)}
+  .tpl-pick input{position:absolute;opacity:0;pointer-events:none}
+  .tpl-emoji{font-size:22px}
+  .tpl-name{font-weight:700;font-size:14px}
+  .tpl-desc{font-size:11.5px;color:var(--muted);line-height:1.3}
   .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   .field{margin-bottom:14px}
@@ -119,6 +129,52 @@
   .charge-visit{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600;color:var(--muted);margin:16px 0 4px;cursor:pointer}
   .charge-visit input{width:20px;height:20px}
   .charge-btn{width:100%;font-size:19px;padding:17px;margin-top:8px;border-radius:14px}
+  /* Resultado del cobro: gratificante y animado */
+  .charge-result{margin-top:16px;border-radius:16px;padding:18px;
+    background:linear-gradient(160deg,#f0faf4,#e7f6ee);border:1px solid #bfe4cf;
+    box-shadow:0 8px 30px rgba(47,158,99,.16);animation:cr-in .45s cubic-bezier(.2,.9,.3,1.3)}
+  .charge-result.has-reward{background:linear-gradient(160deg,#fff8e8,#fdf0d0);border-color:#f0d48a;
+    box-shadow:0 8px 34px rgba(224,160,33,.26)}
+  @keyframes cr-in{0%{opacity:0;transform:translateY(14px) scale(.97)}100%{opacity:1;transform:none}}
+  .cr-top{display:flex;align-items:center;gap:12px}
+  .cr-check{width:44px;height:44px;flex:none;border-radius:50%;background:#2f9e63;color:#fff;
+    font-size:24px;font-weight:800;display:grid;place-items:center;animation:cr-pop .5s cubic-bezier(.2,.9,.3,1.6) .1s both}
+  .has-reward .cr-check{background:#e0a021}
+  @keyframes cr-pop{0%{transform:scale(0)}60%{transform:scale(1.25)}100%{transform:scale(1)}}
+  .cr-name{font-family:'Bricolage Grotesque';font-weight:800;font-size:19px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .cr-sub{font-size:12.5px;color:var(--muted)}
+  .cr-gain{font-family:'Bricolage Grotesque';font-weight:800;font-size:30px;color:#2f9e63;flex:none;
+    animation:cr-gain .6s cubic-bezier(.2,.9,.3,1.6) .15s both;line-height:1}
+  .cr-gain small{font-size:13px;color:var(--muted);font-weight:700;margin-left:2px}
+  @keyframes cr-gain{0%{opacity:0;transform:scale(.4) translateY(8px)}70%{transform:scale(1.15)}100%{opacity:1;transform:none}}
+  .cr-mult{margin-top:10px;background:#e8590c;color:#fff;font-weight:800;font-size:13px;
+    padding:6px 12px;border-radius:20px;display:inline-block;animation:cr-in .4s .2s both}
+  .cr-levelup{margin-top:10px;background:linear-gradient(135deg,#e0a021,#f5c451);color:#3a2600;
+    font-weight:800;font-size:14.5px;padding:9px 14px;border-radius:12px;text-align:center;
+    animation:cr-cheer .6s ease .25s both;box-shadow:0 4px 16px rgba(224,160,33,.4)}
+  @keyframes cr-cheer{0%{opacity:0;transform:scale(.8)}50%{transform:scale(1.06)}100%{opacity:1;transform:none}}
+  .cr-progress{margin-top:14px}
+  .cr-prog-labels{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px}
+  .cr-prog-bar{height:14px;background:#e3ebe6;border-radius:10px;overflow:hidden}
+  .cr-prog-fill{height:100%;border-radius:10px;background:linear-gradient(90deg,#2f9e63,#57c98a);
+    transition:width 1.1s cubic-bezier(.2,.8,.25,1);position:relative;
+    box-shadow:0 0 10px rgba(47,158,99,.5)}
+  .cr-prog-fill::after{content:'';position:absolute;inset:0;border-radius:10px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+    animation:cr-shine 1.8s ease-in-out infinite}
+  @keyframes cr-shine{0%{transform:translateX(-100%)}60%,100%{transform:translateX(100%)}}
+  @keyframes confetti-fall{
+    0%{transform:translateY(0) rotate(0);opacity:1}
+    100%{transform:translateY(105vh) rotate(680deg);opacity:.9}}
+  .has-reward .cr-prog-fill{background:linear-gradient(90deg,#e0a021,#f5c451)}
+  .cr-prog-text{font-size:13.5px;margin-top:7px;color:var(--ink)}
+  .cr-total{margin-top:12px;font-size:14px;color:var(--ink);border-top:1px solid rgba(0,0,0,.06);padding-top:10px}
+  .cr-reward{margin-top:14px;background:rgba(255,255,255,.6);border:1px dashed #e0a021;border-radius:12px;padding:12px}
+  .cr-reward-head{font-weight:800;color:#a56a00;font-size:14.5px;margin-bottom:8px;animation:cr-glow 1.6s ease-in-out infinite}
+  @keyframes cr-glow{0%,100%{opacity:1}50%{opacity:.65}}
+  .cr-reward-list{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .cr-reward-chip{background:#fff;border:1px solid #f0d48a;color:#8a5a00;font-size:12.5px;font-weight:700;padding:4px 10px;border-radius:20px}
+  .cr-link{display:inline-block;margin-top:12px;font-size:13px;color:var(--plum);font-weight:600;text-decoration:none}
   .section-card h3{font-size:17px;margin-bottom:4px}
   .section-card .hint{color:var(--muted);font-size:13px;margin-bottom:16px}
   .list-editor .row{display:grid;gap:10px;align-items:end;padding:12px;border:1px solid var(--line);
@@ -219,6 +275,6 @@
   <button onclick="dismissInstall()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer">×</button>
 </div>
 
-<script src="/static/admin.js?v=202607161911"></script>
+<script src="/static/admin.js?v=8ee2f9cd"></script>
 </body>
 </html>
